@@ -4,7 +4,6 @@ import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
-import 'src/glass.dart';
 import 'src/home_screen.dart';
 
 /// The card shipped in assets, so the app has something real to open on a fresh

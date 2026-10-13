@@ -432,14 +432,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           GestureDetector(
             onTap: _send,
-            child: GlassPanel(
+            child: const GlassPanel(
               radius: 999,
               blur: 10,
-              padding: const EdgeInsets.all(10),
+              padding: EdgeInsets.all(10),
               tintStrength: 1.6,
               shadow: false,
               showSpecular: false,
-              child: const Icon(
+              child: Icon(
                 Icons.arrow_upward_rounded,
                 size: 18,
                 color: Glass.textPrimary,

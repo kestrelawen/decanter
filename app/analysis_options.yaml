@@ -2,6 +2,18 @@
 # animation-heavy.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  # Stated explicitly rather than left to `flutter analyze`, which silently
+  # rewrites this file to add these when they are missing — a surprise edit of a
+  # tracked file during CI.
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - linux/**
+    - macos/**
+    - windows/**
+
 linter:
   rules:
     # A stale `context` after an await is the classic Flutter crash; these catch
