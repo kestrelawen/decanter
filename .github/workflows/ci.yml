@@ -6,12 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  # Force IPv4 for tooling that would otherwise prefer a broken IPv6 path.
-  # The GitHub runners are fine; this is harmless insurance and keeps behaviour
-  # identical to the dev VM.
-  DOTNET_CLI_TELEMETRY_OPTOUT: 1
-
 jobs:
   core:
     name: Core (pure Dart)
@@ -24,7 +18,11 @@ jobs:
 
       - uses: dart-lang/setup-dart@v1
         with:
-          sdk: stable
+          # Pinned to the version this suite was verified against. `stable` would
+          # drift, and an upstream formatter or analyzer change would fail this
+          # job for reasons unrelated to the code, with no way to reproduce it
+          # locally where this exact SDK is installed.
+          sdk: 3.13.5
 
       - name: Print toolchain versions
         run: dart --version
@@ -53,44 +51,70 @@ jobs:
   android:
     name: Android APK
     runs-on: ubuntu-latest
-    # Skipped until the Flutter app lands. Adding app/pubspec.yaml turns this
-    # job on automatically; a skipped job keeps CI green in the meantime.
-    if: ${{ hashFiles('app/pubspec.yaml') != '' }}
     defaults:
       run:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
 
+      # The gate that keeps this job a no-op until the Flutter app lands, after
+      # which it switches itself on.
+      #
+      # Deliberately a real shell test and NOT `if: hashFiles('app/pubspec.yaml')`:
+      # a job-level `if:` cannot use hashFiles, because the expression is
+      # evaluated before any checkout exists. GitHub's validator rejects the
+      # whole workflow file with "Unrecognized function: 'hashFiles'", which
+      # surfaces as a zero-second failure with no jobs at all — learned the hard
+      # way on run 38407983163.
+      - name: Check whether the Flutter app exists
+        id: gate
+        working-directory: .
+        run: |
+          if [ -f app/pubspec.yaml ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Flutter app found - the Android build will run."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No app/pubspec.yaml yet - skipping the Android build."
+          fi
+
       - uses: actions/setup-java@v4
+        if: steps.gate.outputs.ready == 'true'
         with:
           distribution: temurin
           java-version: '17'
 
       - uses: subosito/flutter-action@v2
+        if: steps.gate.outputs.ready == 'true'
         with:
           channel: stable
           cache: true
 
       - name: Resolve dependencies
+        if: steps.gate.outputs.ready == 'true'
         run: flutter pub get
 
       - name: Analyze
+        if: steps.gate.outputs.ready == 'true'
         run: flutter analyze --fatal-infos
 
       - name: Widget and unit tests
+        if: steps.gate.outputs.ready == 'true'
         run: flutter test --reporter expanded
 
       - name: Build APK
-        # The stock Flutter template signs release builds with the debug key,
-        # so this produces a phone-installable APK with no secrets configured.
+        # The stock Flutter template signs release builds with the debug key, so
+        # this yields a phone-installable APK with no secrets configured.
         # Replace signingConfig with a real keystore before publishing anywhere.
+        if: steps.gate.outputs.ready == 'true'
         run: flutter build apk --release
 
       - name: Report APK size
+        if: steps.gate.outputs.ready == 'true'
         run: ls -lh build/app/outputs/flutter-apk/
 
       - uses: actions/upload-artifact@v4
+        if: steps.gate.outputs.ready == 'true'
         with:
           name: decanter-apk
           path: app/build/app/outputs/flutter-apk/*.apk
