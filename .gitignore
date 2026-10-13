@@ -1,0 +1,30 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+
+# Android
+app/android/.gradle/
+app/android/app/debug/
+app/android/app/release/
+*.jks
+*.keystore
+key.properties
+
+# Secrets — never commit these
+.env
+*.secret
+secrets.json
+
+# Real SillyTavern fixtures are fetched by tool/fetch_fixtures.sh, never
+# committed: they are AGPL-3.0 content owned by the SillyTavern project.
+packages/decanter_core/testdata/real/
+
+# Editor / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

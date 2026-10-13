@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Force IPv4 for tooling that would otherwise prefer a broken IPv6 path.
+  # The GitHub runners are fine; this is harmless insurance and keeps behaviour
+  # identical to the dev VM.
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  core:
+    name: Core (pure Dart)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/decanter_core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Print toolchain versions
+        run: dart --version
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      - name: Fetch real-world fixtures
+        # Optional: pulls genuine SillyTavern output so the regression tests
+        # exercise real files. Absent fixtures cause those tests to skip, not
+        # fail, so a network hiccup cannot break the build.
+        continue-on-error: true
+        run: |
+          chmod +x tool/fetch_fixtures.sh
+          ./tool/fetch_fixtures.sh
+
+      - name: Test
+        run: dart test --reporter expanded
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    # Skipped until the Flutter app lands. Adding app/pubspec.yaml turns this
+    # job on automatically; a skipped job keeps CI green in the meantime.
+    if: ${{ hashFiles('app/pubspec.yaml') != '' }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos
+
+      - name: Widget and unit tests
+        run: flutter test --reporter expanded
+
+      - name: Build APK
+        # The stock Flutter template signs release builds with the debug key,
+        # so this produces a phone-installable APK with no secrets configured.
+        # Replace signingConfig with a real keystore before publishing anywhere.
+        run: flutter build apk --release
+
+      - name: Report APK size
+        run: ls -lh build/app/outputs/flutter-apk/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decanter-apk
+          path: app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 30

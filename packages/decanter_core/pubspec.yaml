@@ -1,0 +1,12 @@
+name: decanter_core
+description: >-
+  Pure-Dart core for Decanter: SillyTavern-compatible character cards
+  (V1/V2/V3, PNG-embedded), character books, world info, prompt assembly.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dev_dependencies:
+  test: ^1.25.0
