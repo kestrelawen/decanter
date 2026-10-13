@@ -332,6 +332,67 @@ void main() {
     });
   });
 
+  group('asset download url', () {
+    AppRelease releaseWith({int id = 637525358}) {
+      final Map<String, dynamic> json = jsonDecode(
+        releaseJson(
+          assets: <Map<String, Object>>[
+            <String, Object>{
+              'id': id,
+              'name': 'decanter-0.3.0.apk',
+              'browser_download_url':
+                  'https://github.com/kestrelawen/decanter/releases/download/v0.3.0/decanter-0.3.0.apk',
+              'size': 50846969,
+            },
+          ],
+        ),
+      ) as Map<String, dynamic>;
+      return AppRelease.fromJson(json);
+    }
+
+    test('the asset id is read out of the response', () {
+      expect(releaseWith().apk!.id, 637525358);
+    });
+
+    test('with a token, the API asset endpoint is used', () {
+      // The github.com browser URL answers 404 to a bearer token for a private
+      // repository, so a token must switch the download to the API.
+      final ReleaseClient client = ReleaseClient(
+        transport: FakeTransport(),
+        token: 'ghp_example',
+      );
+      expect(
+        client.downloadUriFor(releaseWith().apk!, 'kestrelawen/decanter'),
+        Uri.parse(
+          'https://api.github.com/repos/kestrelawen/decanter/releases/assets/637525358',
+        ),
+      );
+    });
+
+    test('without a token, the browser download URL is used', () {
+      // Public repositories are not rate-limited on this URL, so there is no
+      // reason to route them through the API.
+      final ReleaseClient client = ReleaseClient(transport: FakeTransport());
+      final Uri uri = client.downloadUriFor(
+        releaseWith().apk!,
+        'kestrelawen/decanter',
+      );
+      expect(uri.host, 'github.com');
+      expect(uri.path, contains('/releases/download/'));
+    });
+
+    test('a token with no asset id falls back to the browser URL', () {
+      final ReleaseClient client = ReleaseClient(
+        transport: FakeTransport(),
+        token: 'ghp_example',
+      );
+      expect(
+        client.downloadUriFor(releaseWith(id: 0).apk!, 'r/r').host,
+        'github.com',
+      );
+    });
+  });
+
   group('downloader', () {
     late HttpServer server;
     late IoHttpTransport transport;

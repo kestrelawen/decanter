@@ -109,11 +109,18 @@ class ReleaseAsset {
     required this.name,
     required this.downloadUrl,
     required this.sizeBytes,
+    this.id = 0,
   });
 
   final String name;
   final Uri downloadUrl;
   final int sizeBytes;
+
+  /// GitHub's numeric asset id.
+  ///
+  /// Needed to download through the API, which is the only way to fetch an asset
+  /// from a private repository.
+  final int id;
 
   /// True for the files worth offering to install.
   bool get isApk => name.toLowerCase().endsWith('.apk');
@@ -176,6 +183,7 @@ class AppRelease {
                       Uri.tryParse(_string(raw['browser_download_url'])) ??
                           Uri(),
                   sizeBytes: raw['size'] is int ? raw['size'] as int : 0,
+                  id: raw['id'] is int ? raw['id'] as int : 0,
                 ),
         ],
       );
@@ -340,6 +348,26 @@ class ReleaseClient {
       status: UpdateStatus.updateAvailable,
       release: release,
       message: 'Version ${release.version.toString()} is available.',
+    );
+  }
+
+  /// The URL to fetch [asset] from, for the repository [repo].
+  ///
+  /// With a token configured the API asset endpoint is used, because the
+  /// browser download URL on github.com does not accept a bearer token: for a
+  /// private repository it answers **404**, which is indistinguishable from the
+  /// asset not existing. Verified against a real private release — the check
+  /// succeeds while the browser URL 404s.
+  ///
+  /// Without a token the browser URL is used, since it is not subject to the
+  /// API's hourly rate limit.
+  ///
+  /// The API endpoint requires `Accept: application/octet-stream` and answers
+  /// with a 302 to signed object storage.
+  Uri downloadUriFor(ReleaseAsset asset, String repo) {
+    if (token.trim().isEmpty || asset.id <= 0) return asset.downloadUrl;
+    return Uri.parse(
+      '$_apiBase/repos/${repo.trim()}/releases/assets/${asset.id}',
     );
   }
 

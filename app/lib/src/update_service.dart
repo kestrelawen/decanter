@@ -95,12 +95,12 @@ class UpdateService {
     _owned = null;
   }
 
+  ReleaseClient _clientFor(AppSettings settings) =>
+      ReleaseClient(transport: _effectiveTransport, token: settings.updateToken);
+
   /// Asks GitHub what the latest release is.
   Future<UpdateCheck> checkForUpdate(AppSettings settings) =>
-      ReleaseClient(
-        transport: _effectiveTransport,
-        token: settings.updateToken,
-      ).checkForUpdate(
+      _clientFor(settings).checkForUpdate(
         repo: settings.updateRepo,
         currentVersion: installedVersion,
       );
@@ -164,8 +164,12 @@ class UpdateService {
       return target;
     }
 
+    final ReleaseClient client = _clientFor(settings);
+
     await _effectiveDownloader.downloadTo(
-      url: asset.downloadUrl,
+      // Not asset.downloadUrl: the github.com browser URL 404s for a private
+      // repository's asset, because it does not accept a bearer token.
+      url: client.downloadUriFor(asset, settings.updateRepo),
       target: target,
       headers: <String, String>{
         'Accept': 'application/octet-stream',
