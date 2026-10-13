@@ -1,0 +1,13 @@
+# Flutter's recommended lint set, plus a few that matter for a UI this
+# animation-heavy.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # A stale `context` after an await is the classic Flutter crash; these catch
+    # it at analysis time instead of on a device.
+    use_build_context_synchronously: true
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    avoid_unnecessary_containers: true
+    sized_box_for_whitespace: true
