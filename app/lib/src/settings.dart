@@ -67,6 +67,8 @@ class AppSettings {
     this.personaDescription = '',
     this.authorNote = '',
     this.contextBudget = 4096,
+    this.updateRepo = 'kestrelawen/decanter',
+    this.updateToken = '',
   });
 
   final String baseUrl;
@@ -84,6 +86,14 @@ class AppSettings {
 
   /// Token ceiling for the assembled prompt. 0 disables trimming.
   final int contextBudget;
+
+  /// `owner/name` of the GitHub repository the updater reads releases from.
+  final String updateRepo;
+
+  /// Read-only GitHub token. Needed only while the repository is private:
+  /// GitHub answers 404 for a private repository to an unauthenticated client,
+  /// so the updater cannot tell "no releases yet" from "not allowed to look".
+  final String updateToken;
 
   /// True when there is enough here to attempt a request.
   bool get isConfigured =>
@@ -110,6 +120,8 @@ class AppSettings {
     String? personaDescription,
     String? authorNote,
     int? contextBudget,
+    String? updateRepo,
+    String? updateToken,
   }) => AppSettings(
     baseUrl: baseUrl ?? this.baseUrl,
     apiKey: apiKey ?? this.apiKey,
@@ -120,6 +132,8 @@ class AppSettings {
     personaDescription: personaDescription ?? this.personaDescription,
     authorNote: authorNote ?? this.authorNote,
     contextBudget: contextBudget ?? this.contextBudget,
+    updateRepo: updateRepo ?? this.updateRepo,
+    updateToken: updateToken ?? this.updateToken,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -132,6 +146,8 @@ class AppSettings {
     'personaDescription': personaDescription,
     'authorNote': authorNote,
     'contextBudget': contextBudget,
+    'updateRepo': updateRepo,
+    'updateToken': updateToken,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -154,6 +170,12 @@ class AppSettings {
     contextBudget: json['contextBudget'] is int
         ? json['contextBudget'] as int
         : 4096,
+    updateRepo: json['updateRepo'] is String
+        ? json['updateRepo'] as String
+        : 'kestrelawen/decanter',
+    updateToken: json['updateToken'] is String
+        ? json['updateToken'] as String
+        : '',
   );
 }
 

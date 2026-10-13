@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'glass.dart';
 import 'settings.dart';
+import 'update_screen.dart';
+import 'update_service.dart';
 
 /// Where the user points the app at a model.
 ///
@@ -30,6 +32,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _persona = TextEditingController(
     text: widget.initial.personaName,
   );
+  late final TextEditingController _updateRepo = TextEditingController(
+    text: widget.initial.updateRepo,
+  );
+  late final TextEditingController _updateToken = TextEditingController(
+    text: widget.initial.updateToken,
+  );
 
   bool _revealKey = false;
 
@@ -39,6 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _apiKey.dispose();
     _model.dispose();
     _persona.dispose();
+    _updateRepo.dispose();
+    _updateToken.dispose();
     super.dispose();
   }
 
@@ -58,11 +68,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  Future<void> _openUpdates() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => UpdateScreen(settings: _collect()),
+      ),
+    );
+  }
+
   AppSettings _collect() => _draft.copyWith(
     baseUrl: _baseUrl.text.trim(),
     apiKey: _apiKey.text.trim(),
     model: _model.text.trim(),
     personaName: _persona.text.trim().isEmpty ? 'You' : _persona.text.trim(),
+    updateRepo: _updateRepo.text.trim().isEmpty
+        ? 'kestrelawen/decanter'
+        : _updateRepo.text.trim(),
+    updateToken: _updateToken.text.trim(),
   );
 
   @override
@@ -203,6 +225,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           label: 'Name used for {{user}}',
                           controller: _persona,
                           hint: 'You',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _card(
+                      title: 'UPDATES',
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Text(
+                              'Decanter $appVersion',
+                              style: const TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: _openUpdates,
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 13,
+                                  vertical: 8,
+                                ),
+                                tintStrength: 1.6,
+                                child: const Text(
+                                  'CHECK',
+                                  style: TextStyle(
+                                    color: Glass.textPrimary,
+                                    fontSize: 11,
+                                    letterSpacing: 1.2,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        _field(
+                          label: 'GitHub repository',
+                          controller: _updateRepo,
+                          hint: 'owner/name',
+                        ),
+                        const SizedBox(height: 12),
+                        _field(
+                          label: 'GitHub token — only needed while the repo is '
+                              'private',
+                          controller: _updateToken,
+                          hint: 'optional',
+                          obscure: true,
                         ),
                       ],
                     ),

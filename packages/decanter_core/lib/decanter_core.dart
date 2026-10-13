@@ -12,5 +12,6 @@ export 'src/macros.dart';
 export 'src/png_text.dart';
 export 'src/prompt.dart';
 export 'src/tokenizer.dart';
+export 'src/updater.dart';
 export 'src/world_info.dart';
 export 'src/world_info_engine.dart';

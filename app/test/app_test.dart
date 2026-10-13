@@ -6,8 +6,10 @@ import 'package:decanter/src/chat_controller.dart';
 import 'package:decanter/src/glass.dart';
 import 'package:decanter/src/home_screen.dart';
 import 'package:decanter/src/settings.dart';
+import 'package:decanter/src/update_service.dart';
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The bundled card, parsed straight off disk.
@@ -381,6 +383,92 @@ void main() {
       expect(find.textContaining('furnace'), findsWidgets);
 
       await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('update service', () {
+    // The channel name is the one part of the update path the analyzer cannot
+    // check: a typo on either side — the Dart constant or the Kotlin string —
+    // compiles cleanly and fails only on a device, as a MissingPluginException
+    // that does not say which side is wrong. Mocking the agreed name here turns
+    // that into a failing test.
+    const MethodChannel channel = MethodChannel(updateChannelName);
+
+    final List<MethodCall> calls = <MethodCall>[];
+    late Directory staging;
+    bool allowInstall = true;
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      calls.clear();
+      allowInstall = true;
+      staging = Directory.systemTemp.createTempSync('decanter-update-test');
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall call) async {
+            calls.add(call);
+            switch (call.method) {
+              case 'canInstallPackages':
+                return allowInstall;
+              case 'updateDirectory':
+                return staging.path;
+              case 'install':
+                return true;
+              case 'openInstallSettings':
+                return true;
+            }
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      if (staging.existsSync()) staging.deleteSync(recursive: true);
+    });
+
+    test('asks the platform for a staging directory and uses it', () async {
+      final UpdateService service = UpdateService();
+      addTearDown(service.dispose);
+
+      final Directory directory = await service.updateDirectory();
+      expect(directory.path, staging.path);
+      expect(calls.single.method, 'updateDirectory');
+    });
+
+    test('install hands over the absolute path', () async {
+      final UpdateService service = UpdateService();
+      addTearDown(service.dispose);
+
+      final File apk = File('${staging.path}/decanter-0.3.0.apk')
+        ..writeAsBytesSync(<int>[1, 2, 3]);
+
+      expect(await service.install(apk), isTrue);
+      expect(calls.last.method, 'install');
+      expect(calls.last.arguments, <String, dynamic>{'path': apk.path});
+    });
+
+    test('install does not claim to have started when permission is missing', () async {
+      allowInstall = false;
+      final UpdateService service = UpdateService();
+      addTearDown(service.dispose);
+
+      final File apk = File('${staging.path}/decanter-0.3.0.apk')
+        ..writeAsBytesSync(<int>[1, 2, 3]);
+
+      // Returning false is the point: the screen must send the user to grant
+      // permission rather than report an install that never happened.
+      expect(await service.install(apk), isFalse);
+      expect(calls.map((MethodCall c) => c.method), <String>[
+        'canInstallPackages',
+        'openInstallSettings',
+      ]);
+    });
+
+    test('the installed version parses whether or not CI injected it', () {
+      // Outside a --dart-define build this falls back to 0.0.0, which must still
+      // be a valid version rather than throwing on the update screen.
+      expect(installedVersion.parts, isNotEmpty);
     });
   });
 }

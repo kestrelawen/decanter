@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths the updater's FileProvider is allowed to hand out. Kept as narrow as
+     possible: only the staging directory the updater writes to, so nothing else
+     in the app's storage can be requested through this provider. -->
+<paths>
+    <!-- getExternalFilesDir(null)/updates — the usual location. -->
+    <external-files-path name="updates" path="updates/" />
+    <!-- filesDir/updates — the fallback when external storage is unavailable. -->
+    <files-path name="internal_updates" path="updates/" />
+</paths>

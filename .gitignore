@@ -10,6 +10,9 @@ pubspec.lock
 app/android/.gradle/
 app/android/app/debug/
 app/android/app/release/
+# Absolute SDK paths for the machine that ran the build — regenerated locally.
+local.properties
+*.iml
 *.jks
 *.keystore
 key.properties
