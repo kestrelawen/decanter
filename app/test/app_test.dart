@@ -137,8 +137,13 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pump(const Duration(milliseconds: 50));
 
-      // The entry's own comment is rendered in the inspector.
-      expect(find.text('furnace'), findsWidgets);
+      // find.text matches exactly, and nothing on screen is the bare word
+      // "furnace": the bubble holds the whole sentence and the inspector holds
+      // the entry's joined keys. Assert on substrings, and on the count, which
+      // is the claim actually worth making.
+      expect(find.textContaining('1 active'), findsOneWidget);
+      expect(find.textContaining('furnace'), findsWidgets);
+      expect(find.textContaining('beforeChar'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
