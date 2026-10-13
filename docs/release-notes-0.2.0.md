@@ -56,7 +56,7 @@ unknown sources on a physical device.
 
 154 tests cover the engine — card parsing, lorebook activation, prompt assembly,
 and the streaming HTTP client, including malformed SSE and a provider that never
-sends its terminator. 20 more cover the app: the chat loop, cancellation,
+sends its terminator. 19 more cover the app: the chat loop, cancellation,
 error mapping, and a regression test asserting the lorebook panel really is gone
 from the bottom of the layout.
 
