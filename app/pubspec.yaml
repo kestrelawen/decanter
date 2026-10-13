@@ -1,7 +1,7 @@
 name: decanter
 description: SillyTavern-compatible character cards, lorebooks and presets for Android.
 publish_to: none
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.5.0
@@ -14,6 +14,10 @@ dependencies:
   # Android SDK — which is the only way anything gets verified before CI runs.
   decanter_core:
     path: ../packages/decanter_core
+
+  # Settings and API key storage. Plaintext on disk; see the note in
+  # settings.dart before trusting it with a billable key.
+  shared_preferences: ^2.3.0
 
 dev_dependencies:
   flutter_test:

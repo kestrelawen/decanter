@@ -273,8 +273,262 @@ void writeSampleCard(File out) {
   stdout.writeln('wrote ${out.path} (${out.lengthSync()} bytes)');
 }
 
+// --- the app icon ----------------------------------------------------------
+
+double _sdCircle(double x, double y, double cx, double cy, double r) {
+  final double dx = x - cx;
+  final double dy = y - cy;
+  return math.sqrt(dx * dx + dy * dy) - r;
+}
+
+double _sdBox(
+  double x,
+  double y,
+  double cx,
+  double cy,
+  double halfW,
+  double halfH,
+) {
+  final double dx = (x - cx).abs() - halfW;
+  final double dy = (y - cy).abs() - halfH;
+  final double ax = math.max(dx, 0.0);
+  final double ay = math.max(dy, 0.0);
+  return math.sqrt(ax * ax + ay * ay) + math.min(math.max(dx, dy), 0.0);
+}
+
+/// Polynomial smooth minimum — the union that rounds the joints between the
+/// body, neck and stopper instead of leaving hard creases. Poured glass has no
+/// sharp internal corners, and hard unions are what made the first attempt read
+/// as a ball on a stick.
+double _smin(double a, double b, double k) {
+  final double h = _clamp01(0.5 + 0.5 * (b - a) / k);
+  return b * (1 - h) + a * h - k * h * (1 - h);
+}
+
+/// Signed distance to the decanter mark.
+///
+/// The silhouette is the whole design: a decanter's identity is a **tapering**
+/// body — wide at the base, narrowing to the shoulder — with a long neck and a
+/// flat-topped stopper. A single circle for the body reads as a flask, which is
+/// exactly what happened on the first attempt, so the body is built from four
+/// stacked circles of decreasing radius blended together.
+double _vesselSdf(double x, double y) {
+  double body = _sdCircle(x, y, 0.5, 0.760, 0.205);
+  body = _smin(body, _sdCircle(x, y, 0.5, 0.650, 0.190), 0.055);
+  body = _smin(body, _sdCircle(x, y, 0.5, 0.545, 0.160), 0.055);
+  body = _smin(body, _sdCircle(x, y, 0.5, 0.455, 0.115), 0.055);
+
+  // Neck and stopper use much tighter blends than the body. Blending the
+  // stopper with the same radius as the body fused the two into one gourd
+  // shape, which lost the silhouette entirely; a tight blend leaves a visible
+  // waist at the junction, which is what reads as "stoppered".
+  final double neck = _sdBox(x, y, 0.5, 0.270, 0.040, 0.105);
+  final double stopper = _sdCircle(x, y, 0.5, 0.145, 0.070);
+
+  return _smin(_smin(body, neck, 0.030), stopper, 0.010);
+}
+
+double _clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
+
+/// Renders the icon.
+///
+/// Antialiasing is analytic — coverage is derived from the signed distance
+/// rather than by supersampling — so every edge is smooth at any size without
+/// rendering each pixel many times.
+void writeIcon(
+  File out, {
+  required int size,
+  required bool transparent,
+  required double artScale,
+}) {
+  final rgba = Uint8List(size * size * 4);
+  // One pixel expressed in the art's own coordinate space.
+  final double unit = 1.0 / size;
+  final double aa = unit / artScale;
+
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      final double u = (x + 0.5) / size;
+      final double v = (y + 0.5) / size;
+
+      // Map canvas -> art space, scaled about the centre.
+      final double ax = (u - 0.5) / artScale + 0.5;
+      final double ay = (v - 0.5) / artScale + 0.5;
+
+      final double d = _vesselSdf(ax, ay);
+      final double coverage = _clamp01(0.5 - d / aa);
+
+      final int i = (y * size + x) * 4;
+
+      double sr;
+      double sg;
+      double sb;
+      double sa;
+      if (transparent) {
+        sr = 0;
+        sg = 0;
+        sb = 0;
+        sa = 0;
+      } else {
+        final double dcx = u - 0.5;
+        final double dcy = v - 0.52;
+        final double dist = math.sqrt(dcx * dcx + dcy * dcy) / 0.62;
+        final double k = _clamp01(dist);
+        sr = 44 + (18 - 44) * k;
+        sg = 25 + (12 - 25) * k;
+        sb = 17 + (9 - 17) * k;
+        sa = 255;
+      }
+
+      if (coverage <= 0) {
+        rgba[i] = sr.round();
+        rgba[i + 1] = sg.round();
+        rgba[i + 2] = sb.round();
+        rgba[i + 3] = sa.round();
+        continue;
+      }
+
+      // Glass body, lit from the upper left and deepening downward.
+      final double t = _clamp01((ay - 0.12) / 0.85);
+      double r = 250 + (168 - 250) * t;
+      double g = 205 + (88 - 205) * t;
+      double b = 150 + (40 - 150) * t;
+
+      // A liquid line: everything below the fill reads deeper and more
+      // saturated, with a bright meniscus where it meets the glass. This is the
+      // cue that says "vessel holding something" rather than "coloured shape".
+      const double fillLine = 0.62;
+      final double liquid = _clamp01((ay - (fillLine - 0.012)) / 0.024);
+      if (liquid > 0) {
+        r += (188 - r) * liquid;
+        g += (92 - g) * liquid;
+        b += (34 - b) * liquid;
+      } else {
+        // Meniscus highlight hugging the top of the liquid.
+        final double meniscus = 1 - _clamp01(-(ay - fillLine) / 0.012);
+        r += (255 - r) * meniscus * 0.5;
+        g += (232 - g) * meniscus * 0.5;
+        b += (198 - b) * meniscus * 0.5;
+      }
+
+      // Specular highlights, all above the fill line. Reflections belong on the
+      // empty glass; the first attempt put two of them under the liquid where
+      // they read as floating dots — blemishes rather than light.
+      for (final List<double> blob in <List<double>>[
+        <double>[0.418, 0.545, 0.055, 0.85], // shoulder
+        <double>[0.462, 0.430, 0.022, 0.38], // upper body
+        <double>[0.489, 0.230, 0.014, 0.60], // neck glint
+      ]) {
+        final double hi = _sdCircle(ax, ay, blob[0], blob[1], blob[2]);
+        if (hi < 0) {
+          final double strength = _clamp01(-hi / blob[2]) * blob[3];
+          r += (255 - r) * strength;
+          g += (245 - g) * strength;
+          b += (226 - b) * strength;
+        }
+      }
+
+      // Rim light: brighten the last couple of pixels at the silhouette edge,
+      // which is what makes an edge read as glass instead of as a shape.
+      final double edge = 1 - _clamp01(d.abs() / (aa * 2.6));
+      if (edge > 0) {
+        r += (255 - r) * edge * 0.62;
+        g += (238 - g) * edge * 0.62;
+        b += (208 - b) * edge * 0.62;
+      }
+
+      final double alpha = transparent ? coverage : 1.0;
+      if (!transparent) {
+        r = sr + (r - sr) * coverage;
+        g = sg + (g - sg) * coverage;
+        b = sb + (b - sb) * coverage;
+      }
+
+      rgba[i] = r.round().clamp(0, 255);
+      rgba[i + 1] = g.round().clamp(0, 255);
+      rgba[i + 2] = b.round().clamp(0, 255);
+      rgba[i + 3] = (alpha * 255).round().clamp(0, 255);
+    }
+  }
+
+  out.parent.createSync(recursive: true);
+  out.writeAsBytesSync(encodePng(size, size, rgba));
+}
+
+/// Density buckets Android expects, per `mipmap-*`.
+const Map<String, int> _legacyIconSizes = <String, int>{
+  'mdpi': 48,
+  'hdpi': 72,
+  'xhdpi': 96,
+  'xxhdpi': 144,
+  'xxxhdpi': 192,
+};
+
+/// Adaptive-icon foregrounds are 108dp, not 48dp, and only the inner ~66dp is
+/// guaranteed visible inside an arbitrary launcher mask.
+const Map<String, int> _adaptiveForegroundSizes = <String, int>{
+  'mdpi': 108,
+  'hdpi': 162,
+  'xhdpi': 216,
+  'xxhdpi': 324,
+  'xxxhdpi': 432,
+};
+
+/// Writes the whole icon set into `app/android_overlay/`, which CI copies over
+/// the generated `android/` tree.
+///
+/// An overlay rather than a committed `android/` folder, because that folder has
+/// to be generated by Flutter anyway (the Gradle wrapper is a binary).
+void writeIconSet(String root) {
+  final String res = '$root/app/android_overlay/res';
+
+  _legacyIconSizes.forEach((String density, int size) {
+    writeIcon(
+      File('$res/mipmap-$density/ic_launcher.png'),
+      size: size,
+      transparent: false,
+      artScale: 0.95,
+    );
+  });
+
+  _adaptiveForegroundSizes.forEach((String density, int size) {
+    writeIcon(
+      File('$res/mipmap-$density/ic_launcher_foreground.png'),
+      size: size,
+      transparent: true,
+      // Sized to sit inside the safe zone of any launcher mask.
+      artScale: 0.82,
+    );
+  });
+
+  File('$res/mipmap-anydpi-v26/ic_launcher.xml')
+    ..parent.createSync(recursive: true)
+    ..writeAsStringSync('''<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon: the launcher supplies the mask, so the foreground only has
+     to survive being cropped to a circle, squircle or rounded square. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+</adaptive-icon>
+''');
+
+  File('$res/values/ic_launcher_background.xml')
+    ..parent.createSync(recursive: true)
+    ..writeAsStringSync('''<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the outer stop of the generated background gradient. -->
+    <color name="ic_launcher_background">#120C09</color>
+</resources>
+''');
+
+  stdout.writeln('wrote icon set under $res');
+  stdout.writeln('  legacy: ${_legacyIconSizes.keys.join(", ")}');
+  stdout.writeln('  adaptive foreground: ${_adaptiveForegroundSizes.keys.join(", ")}');
+}
+
 void main(List<String> args) {
   final root = Directory.current.path;
   writeBackground(File('$root/app/assets/background.png'));
   writeSampleCard(File('$root/app/assets/cards/mira_vance.json'));
+  writeIconSet(root);
 }

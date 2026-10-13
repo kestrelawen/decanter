@@ -1,124 +1,103 @@
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 
+import 'chat_controller.dart';
 import 'glass.dart';
+import 'settings.dart';
 
-/// The main surface: a card, a chat, and a live view of what the lorebook is
-/// doing.
-///
-/// The lore inspector is the point of this first build. It makes the engine's
-/// decisions visible on a real device — which entries fired, from which keys,
-/// and where they land in the prompt — so a bug in activation is something you
-/// can see rather than infer.
+/// The main surface: the card, the conversation, and the reply arriving.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.card});
+  const HomeScreen({
+    super.key,
+    required this.card,
+    required this.settings,
+    required this.onOpenSettings,
+  });
 
   final TavernCard card;
+  final AppSettings settings;
+  final Future<void> Function() onOpenSettings;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  late ChatController _chat;
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
-  final List<ChatMessage> _history = <ChatMessage>[];
-  final WorldInfoTiming _timing = WorldInfoTiming();
-
-  WorldInfoScanResult? _scan;
-  bool _inspectorOpen = true;
+  int _greetingIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _restart();
+    _chat = ChatController(card: widget.card, settings: widget.settings)
+      ..addListener(_onChatChanged);
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.settings, widget.settings)) {
+      _chat.updateSettings(widget.settings);
+    }
   }
 
   @override
   void dispose() {
+    _chat
+      ..removeListener(_onChatChanged)
+      ..dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  // --- chat ---------------------------------------------------------------
-
-  void _restart() {
-    final String greeting = widget.card.greetings.isEmpty
-        ? '*She is here, and says nothing yet.*'
-        : widget.card.greetings.first;
-
-    _history
-      ..clear()
-      // A fresh timing state per chat, otherwise cooldowns leak across resets.
-      ..add(ChatMessage(role: ChatRole.assistant, content: greeting));
-
-    for (final String key in _timing.entries.keys.toList()) {
-      _timing[key].stickyLeft = 0;
-      _timing[key].cooldownLeft = 0;
-      _timing[key].delayLeft = 0;
-    }
-    _scan = _runScan();
+  void _onChatChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _follow();
   }
 
-  WorldInfoScanResult _runScan() {
-    final CharacterBook? book = widget.card.characterBook;
-    return WorldInfoScanner().scan(
-      sources: book == null
-          ? const <WorldInfoSource>[]
-          : <WorldInfoSource>[WorldInfoSource(key: 'character', book: book)],
-      history: _history,
-      timing: _timing,
-      // History only for now. SillyTavern can also scan the character
-      // description and persona; that becomes a setting rather than a default,
-      // because it makes lore fire before anyone has said anything.
-      tokenBudget: 1024,
-    );
+  /// Keeps the newest content in view, but only when the user is already near
+  /// the bottom — yanking the viewport while someone is reading back through the
+  /// conversation is worse than letting the reply run off-screen.
+  void _follow() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final double max = _scroll.position.maxScrollExtent;
+      if ((_scroll.position.pixels - max).abs() > 180) return;
+      _scroll.animateTo(
+        max,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void _send() {
     final String text = _input.text.trim();
-    if (text.isEmpty) return;
-
-    setState(() {
-      _history.add(ChatMessage(role: ChatRole.user, content: text));
-      _input.clear();
-      _scan = _runScan();
-      _history.add(
-        const ChatMessage(
-          role: ChatRole.assistant,
-          isSystemNote: true,
-          content:
-              'No model backend is connected in this build, so there is no '
-              'reply yet. Type lore keywords — furnace, sea glass, the '
-              'accident — and watch the inspector below change.',
-        ),
-      );
-    });
-    _scrollToEnd();
+    if (text.isEmpty || _chat.isStreaming) return;
+    _input.clear();
+    // Deliberately not awaited: the UI stays responsive while the reply streams.
+    _chat.send(text);
+    _follow();
   }
 
-  void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
-      _scroll.animateTo(
-        _scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 520),
-        curve: Curves.easeOutCubic,
-      );
-    });
+  void _cycleGreeting() {
+    final int count = widget.card.greetings.length;
+    if (count < 2) return;
+    setState(() => _greetingIndex = (_greetingIndex + 1) % count);
+    _chat.useGreeting(_greetingIndex);
   }
 
   // --- build --------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final CharacterBook? book = widget.card.characterBook;
-
     return Scaffold(
       backgroundColor: const Color.fromRGBO(12, 9, 8, 1),
-      resizeToAvoidBottomInset: true,
       body: LiquidBackground(
         asset: 'assets/background.png',
         child: SafeArea(
@@ -126,11 +105,13 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Column(
               children: <Widget>[
-                _header(book),
-                const SizedBox(height: 12),
-                Expanded(child: _messageList()),
+                _header(),
                 const SizedBox(height: 10),
-                if (_scan != null) _inspector(_scan!),
+                Expanded(child: _messageList()),
+                if (_chat.error != null) ...<Widget>[
+                  const SizedBox(height: 10),
+                  _errorBanner(_chat.error!),
+                ],
                 const SizedBox(height: 10),
                 _composer(),
               ],
@@ -141,49 +122,67 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _header(CharacterBook? book) {
+  Widget _header() {
+    final WorldInfoScanResult? scan = _chat.scan;
+    final int greetingCount = widget.card.greetings.length;
+    final int active = scan?.activated.length ?? 0;
+
     return GlassPanel(
-      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
       child: SheenSweep(
         child: Row(
           children: <Widget>[
             _avatar(),
-            const SizedBox(width: 12),
+            const SizedBox(width: 11),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    widget.card.name.isEmpty ? 'Unnamed card' : widget.card.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Glass.textPrimary,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.1,
+              child: GestureDetector(
+                // Tapping cycles alternate greetings — the only way to reach the
+                // second opening without editing the card.
+                onTap: greetingCount > 1 ? _cycleGreeting : null,
+                behavior: HitTestBehavior.opaque,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      widget.card.name.isEmpty
+                          ? 'Unnamed card'
+                          : widget.card.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Glass.textPrimary,
+                        fontSize: 16.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    <String>[
-                      widget.card.spec.id.replaceFirst('chara_card_', ''),
-                      '${widget.card.greetings.length} greeting'
-                          '${widget.card.greetings.length == 1 ? '' : 's'}',
-                      if (book != null)
-                        '${book.entries.length} lore '
-                            'entr${book.entries.length == 1 ? 'y' : 'ies'}',
-                    ].join('  ·  '),
-                    style: const TextStyle(
-                      color: Glass.textFaint,
-                      fontSize: 11.5,
-                      letterSpacing: 0.3,
+                    const SizedBox(height: 2),
+                    Text(
+                      <String>[
+                        '${scan?.tokenCost ?? 0} tok',
+                        '$active lore',
+                        if (greetingCount > 1)
+                          'greeting ${_greetingIndex + 1}/$greetingCount',
+                        if (!widget.settings.isConfigured) 'no backend',
+                      ].join('  ·  '),
+                      style: const TextStyle(
+                        color: Glass.textFaint,
+                        fontSize: 10.5,
+                        letterSpacing: 0.3,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-            _GhostButton(label: 'RESET', onTap: _restart),
+            _IconAction(
+              icon: Icons.auto_awesome_motion_outlined,
+              onTap: _openLoreSheet,
+              badge: active > 0 ? '$active' : null,
+            ),
+            const SizedBox(width: 6),
+            _IconAction(icon: Icons.tune_rounded, onTap: widget.onOpenSettings),
+            const SizedBox(width: 6),
+            _IconAction(icon: Icons.refresh_rounded, onTap: _chat.reset),
           ],
         ),
       ),
@@ -205,15 +204,15 @@ class _HomeScreenState extends State<HomeScreen> {
       tintStrength: 1.3,
       shadow: false,
       child: SizedBox(
-        width: 46,
-        height: 46,
+        width: 42,
+        height: 42,
         child: Center(
           child: Text(
             initials.isEmpty ? '?' : initials,
             style: const TextStyle(
               color: Glass.textPrimary,
               fontWeight: FontWeight.w600,
-              fontSize: 16,
+              fontSize: 15,
             ),
           ),
         ),
@@ -222,34 +221,35 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _messageList() {
+    final List<ChatMessage> history = _chat.history;
+    final int extra = _chat.isStreaming ? 1 : 0;
+
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.only(top: 2, bottom: 4),
-      itemCount: _history.length,
+      itemCount: history.length + extra,
       itemBuilder: (BuildContext context, int index) {
-        final ChatMessage message = _history[index];
-        return TweenAnimationBuilder<double>(
-          // Keyed by index so each bubble animates once, on entry.
-          key: ValueKey<int>(index),
-          tween: Tween<double>(begin: 0, end: 1),
-          duration: const Duration(milliseconds: 420),
-          curve: Curves.easeOutCubic,
-          builder: (BuildContext context, double t, Widget? child) {
-            return Opacity(
-              opacity: t,
-              child: Transform.translate(
-                offset: Offset(0, (1 - t) * 14),
-                child: child,
+        if (index >= history.length) {
+          return KeyedSubtree(
+            key: const ValueKey<String>('streaming'),
+            child: _bubble(
+              ChatMessage(
+                role: ChatRole.assistant,
+                content: _chat.streamingText,
               ),
-            );
-          },
-          child: _bubble(message),
+              streaming: true,
+            ),
+          );
+        }
+        return KeyedSubtree(
+          key: ValueKey<int>(index),
+          child: _bubble(history[index]),
         );
       },
     );
   }
 
-  Widget _bubble(ChatMessage message) {
+  Widget _bubble(ChatMessage message, {bool streaming = false}) {
     if (message.isSystemNote) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 8),
@@ -266,6 +266,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final bool mine = message.role == ChatRole.user;
+    final String text = message.content.trim();
+
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -279,107 +281,229 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(15, 12, 15, 12),
           tintStrength: mine ? 1.25 : 0.85,
           shadow: false,
-          child: Text(
-            message.content.trim(),
-            style: TextStyle(
-              color: mine ? Glass.textPrimary : Glass.textSecondary,
-              fontSize: 14.5,
-              height: 1.42,
-            ),
-          ),
+          child: text.isEmpty && streaming
+              ? const _ThinkingDots()
+              : Text(
+                  text,
+                  style: TextStyle(
+                    color: mine ? Glass.textPrimary : Glass.textSecondary,
+                    fontSize: 14.5,
+                    height: 1.42,
+                  ),
+                ),
         ),
       ),
     );
   }
 
-  Widget _inspector(WorldInfoScanResult scan) {
-    final List<WorldInfoEntry> active = scan.activated;
-
+  Widget _errorBanner(String message) {
     return GlassPanel(
-      padding: const EdgeInsets.fromLTRB(14, 11, 14, 12),
-      tintStrength: 0.8,
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      tintStrength: 1.1,
+      borderStrength: 1.4,
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          GestureDetector(
-            onTap: () => setState(() => _inspectorOpen = !_inspectorOpen),
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: <Widget>[
-                const Text(
-                  'LOREBOOK',
-                  style: TextStyle(
-                    color: Glass.textSecondary,
-                    fontSize: 10.5,
-                    letterSpacing: 1.4,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '${active.length} active  ·  ${scan.tokenCost} tok'
-                  '${scan.excludedByBudget.isEmpty ? '' : '  ·  ${scan.excludedByBudget.length} over budget'}',
-                  style: const TextStyle(color: Glass.textFaint, fontSize: 10.5),
-                ),
-                const Spacer(),
-                AnimatedRotation(
-                  turns: _inspectorOpen ? 0.5 : 0,
-                  duration: const Duration(milliseconds: 260),
-                  child: const Icon(
-                    Icons.expand_more,
-                    size: 16,
-                    color: Glass.textFaint,
-                  ),
-                ),
-              ],
+          const Icon(
+            Icons.error_outline_rounded,
+            size: 16,
+            color: Glass.textSecondary,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Glass.textSecondary,
+                fontSize: 11.5,
+                height: 1.4,
+              ),
             ),
           ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: _inspectorOpen
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: active.isEmpty
-                        ? const Text(
-                            'Nothing activated. Entry keys are matched against '
-                            'recent messages.',
-                            style: TextStyle(
-                              color: Glass.textFaint,
-                              fontSize: 11.5,
-                              height: 1.35,
-                            ),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              for (final WorldInfoEntry entry in active)
-                                _loreRow(entry),
-                            ],
-                          ),
-                  )
-                : const SizedBox.shrink(),
+          GestureDetector(
+            onTap: _chat.removeLastExchange,
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Text(
+                'RETRY',
+                style: TextStyle(
+                  color: Glass.textPrimary,
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
+  Widget _composer() {
+    final bool streaming = _chat.isStreaming;
+
+    return GlassPill(
+      padding: const EdgeInsets.fromLTRB(18, 4, 6, 4),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: TextField(
+              controller: _input,
+              onSubmitted: (_) => _send(),
+              textInputAction: TextInputAction.send,
+              minLines: 1,
+              maxLines: 4,
+              style: const TextStyle(color: Glass.textPrimary, fontSize: 14.5),
+              cursorColor: Glass.tint(0.9),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'Say something…',
+                hintStyle: TextStyle(color: Glass.textFaint, fontSize: 14.5),
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: streaming ? _chat.stop : _send,
+            child: GlassPanel(
+              radius: 999,
+              blur: 10,
+              padding: const EdgeInsets.all(10),
+              tintStrength: 1.6,
+              shadow: false,
+              showSpecular: false,
+              child: Icon(
+                streaming ? Icons.stop_rounded : Icons.arrow_upward_rounded,
+                size: 18,
+                color: Glass.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- lore sheet ---------------------------------------------------------
+
+  /// The lorebook readout used to sit permanently along the bottom, taking
+  /// vertical space from the conversation it was describing. It now lives behind
+  /// the header button: one tap away, and out of the way.
+  void _openLoreSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        final WorldInfoScanResult? scan = _chat.scan;
+        final AssembledPrompt? prompt = _chat.lastPrompt;
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+          child: GlassPanel(
+            radius: 30,
+            blur: 34,
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+            tintStrength: 1.5,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Glass.tint(0.35),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'LOREBOOK',
+                    style: TextStyle(
+                      color: Glass.textPrimary,
+                      fontSize: 12,
+                      letterSpacing: 1.6,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    scan == null
+                        ? 'This card has no lorebook.'
+                        : '${scan.activated.length} active  ·  '
+                              '${scan.tokenCost} tok'
+                              '${scan.excludedByBudget.isEmpty ? '' : '  ·  ${scan.excludedByBudget.length} over budget'}',
+                    style: const TextStyle(
+                      color: Glass.textFaint,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (scan != null && scan.activated.isEmpty)
+                    const Text(
+                      'Nothing activated yet. Keys are matched against the '
+                      'conversation, so entries fire once something relevant is '
+                      'said.',
+                      style: TextStyle(
+                        color: Glass.textFaint,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  for (final WorldInfoEntry entry
+                      in scan?.activated ?? const <WorldInfoEntry>[])
+                    _loreRow(entry),
+                  if (prompt != null) ...<Widget>[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'LAST PROMPT',
+                      style: TextStyle(
+                        color: Glass.textPrimary,
+                        fontSize: 12,
+                        letterSpacing: 1.6,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${prompt.messages.length} messages  ·  '
+                      '${prompt.tokenCost} tok'
+                      '${prompt.droppedForBudget.isEmpty ? '' : '  ·  ${prompt.droppedForBudget.length} trimmed'}',
+                      style: const TextStyle(
+                        color: Glass.textFaint,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final PromptBlock block in prompt.blocks)
+                      _blockRow(block),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _loreRow(WorldInfoEntry entry) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Container(
-            margin: const EdgeInsets.only(top: 5, right: 8),
+            margin: const EdgeInsets.only(top: 5, right: 9),
             width: 6,
             height: 6,
             decoration: BoxDecoration(
-              color: Glass.tint(0.8),
+              color: Glass.tint(0.85),
               shape: BoxShape.circle,
             ),
           ),
@@ -392,7 +516,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   entry.comment.isEmpty ? entry.keys.join(', ') : entry.comment,
                   style: const TextStyle(
                     color: Glass.textPrimary,
-                    fontSize: 12,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -400,7 +524,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(
                   '${entry.position.name}  ·  matched '
                   '${entry.keys.take(3).join(', ')}',
-                  style: const TextStyle(color: Glass.textFaint, fontSize: 10.5),
+                  style: const TextStyle(
+                    color: Glass.textFaint,
+                    fontSize: 10.5,
+                  ),
                 ),
               ],
             ),
@@ -410,41 +537,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _composer() {
-    return GlassPill(
-      padding: const EdgeInsets.fromLTRB(18, 4, 6, 4),
+  Widget _blockRow(PromptBlock block) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
       child: Row(
         children: <Widget>[
           Expanded(
-            child: TextField(
-              controller: _input,
-              onSubmitted: (_) => _send(),
-              textInputAction: TextInputAction.send,
-              style: const TextStyle(color: Glass.textPrimary, fontSize: 14.5),
-              cursorColor: Glass.tint(0.9),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: 'Say something…',
-                hintStyle: TextStyle(color: Glass.textFaint, fontSize: 14.5),
+            child: Text(
+              block.id,
+              style: const TextStyle(
+                color: Glass.textSecondary,
+                fontSize: 11,
               ),
             ),
           ),
-          GestureDetector(
-            onTap: _send,
-            child: const GlassPanel(
-              radius: 999,
-              blur: 10,
-              padding: EdgeInsets.all(10),
-              tintStrength: 1.6,
-              shadow: false,
-              showSpecular: false,
-              child: Icon(
-                Icons.arrow_upward_rounded,
-                size: 18,
-                color: Glass.textPrimary,
-              ),
-            ),
+          Text(
+            '${block.tokenCost} tok',
+            style: const TextStyle(color: Glass.textFaint, fontSize: 10.5),
           ),
         ],
       ),
@@ -452,32 +561,113 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// A small translucent text button.
-class _GhostButton extends StatelessWidget {
-  const _GhostButton({required this.label, required this.onTap});
+/// Three pulsing dots, shown while waiting for the first token.
+class _ThinkingDots extends StatefulWidget {
+  const _ThinkingDots();
 
-  final String label;
-  final VoidCallback onTap;
+  @override
+  State<_ThinkingDots> createState() => _ThinkingDotsState();
+}
+
+class _ThinkingDotsState extends State<_ThinkingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (BuildContext context, Widget? child) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            for (int i = 0; i < 3; i++) ...<Widget>[
+              if (i > 0) const SizedBox(width: 5),
+              Opacity(
+                // Staggered, so the dots read as travelling light rather than a
+                // single blink.
+                opacity:
+                    0.2 +
+                    0.7 *
+                        (1 -
+                            (((_controller.value * 3) - i) % 3 - 1.5).abs() /
+                                1.5),
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: Glass.textPrimary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// A circular glass button holding one icon, with an optional count badge.
+class _IconAction extends StatelessWidget {
+  const _IconAction({required this.icon, required this.onTap, this.badge});
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget button = GlassPanel(
+      radius: 999,
+      blur: 12,
+      padding: const EdgeInsets.all(9),
+      tintStrength: 1.3,
+      shadow: false,
+      showSpecular: false,
+      child: Icon(icon, size: 16, color: Glass.textPrimary),
+    );
+
+    if (badge == null) {
+      return GestureDetector(onTap: onTap, child: button);
+    }
+
     return GestureDetector(
       onTap: onTap,
-      child: GlassPanel(
-        radius: 999,
-        blur: 12,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        showSpecular: false,
-        shadow: false,
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: Glass.textSecondary,
-            fontSize: 9.5,
-            letterSpacing: 1.2,
-            fontWeight: FontWeight.w600,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          button,
+          Positioned(
+            right: -4,
+            top: -5,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.92),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                badge!,
+                style: const TextStyle(
+                  color: Color.fromRGBO(30, 18, 12, 1),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
