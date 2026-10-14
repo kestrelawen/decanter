@@ -431,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
             GlassIconButton(
               icon: Icons.refresh_rounded,
               tooltip: 'New chat',
-              onTap: _newChat,
+              onTap: _startFresh,
             ),
             const SizedBox(width: 6),
             GlassIconButton(
