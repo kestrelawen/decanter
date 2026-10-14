@@ -612,6 +612,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: () => _showMessageActions(messageIndex),
+          behavior: HitTestBehavior.opaque,
+          child: Tooltip(
+            message: 'Message actions',
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Icon(
+                Icons.more_horiz_rounded,
+                size: 16,
+                color: Glass.tint(0.45),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }

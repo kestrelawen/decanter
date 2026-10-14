@@ -122,7 +122,7 @@ class ChatRichContent extends StatelessWidget {
       bold: boldStyle,
     );
 
-    return SelectableText.rich(
+    return Text.rich(
       TextSpan(children: spans),
       style: baseStyle,
     );

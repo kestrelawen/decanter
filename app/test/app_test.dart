@@ -618,6 +618,20 @@ void main() {
       expect(find.text('Delete message'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    testWidgets('tapping more actions button opens message actions sheet', (
+      WidgetTester tester,
+    ) async {
+      await pumpHome(tester);
+      await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Edit message'), findsOneWidget);
+      expect(find.text('Copy text'), findsOneWidget);
+      expect(find.text('Delete message'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   group('update service', () {
