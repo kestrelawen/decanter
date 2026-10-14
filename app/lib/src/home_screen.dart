@@ -1678,6 +1678,7 @@ class _HomeScreenState extends State<HomeScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (BuildContext sheetContext) {
         return Padding(
           padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
@@ -1686,73 +1687,75 @@ class _HomeScreenState extends State<HomeScreen> {
             blur: 32,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
             tintStrength: 1.4,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Glass.tint(0.35),
-                      borderRadius: BorderRadius.circular(99),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Glass.tint(0.35),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                if (widget.store != null && widget.entryId != null) ...<Widget>[
+                  const SizedBox(height: 14),
+                  if (widget.store != null && widget.entryId != null) ...<Widget>[
+                    _menuOption(
+                      icon: Icons.forum_outlined,
+                      title: 'Saved Chats',
+                      subtitle: 'Switch branches or start a new chat',
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _openChatsSheet();
+                      },
+                    ),
+                  ],
                   _menuOption(
-                    icon: Icons.forum_outlined,
-                    title: 'Saved Chats',
-                    subtitle: 'Switch branches or start a new chat',
+                    icon: Icons.auto_awesome_motion_outlined,
+                    title: 'Lorebook Inspector',
+                    subtitle: activeLore > 0
+                        ? '$activeLore active entries'
+                        : 'Browse entries & matches',
+                    badge: activeLore > 0 ? '$activeLore' : null,
                     onTap: () {
                       Navigator.of(sheetContext).pop();
-                      _openChatsSheet();
+                      _openLoreSheet();
+                    },
+                  ),
+                  _menuOption(
+                    icon: Icons.person_pin_rounded,
+                    title: 'Switch Persona',
+                    subtitle: 'Active: $activePersona',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _openPersonaSwitchSheet();
+                    },
+                  ),
+                  _menuOption(
+                    icon: Icons.tune_rounded,
+                    title: 'Settings',
+                    subtitle:
+                        '${widget.settings.model}  ·  ${widget.settings.baseUrl}',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      widget.onOpenSettings();
+                    },
+                  ),
+                  _menuOption(
+                    icon: Icons.refresh_rounded,
+                    title: 'Restart Chat',
+                    subtitle: 'Start over from opening greeting',
+                    danger: true,
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _startFresh();
                     },
                   ),
                 ],
-                _menuOption(
-                  icon: Icons.auto_awesome_motion_outlined,
-                  title: 'Lorebook Inspector',
-                  subtitle: activeLore > 0
-                      ? '$activeLore active entries'
-                      : 'Browse entries & matches',
-                  badge: activeLore > 0 ? '$activeLore' : null,
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openLoreSheet();
-                  },
-                ),
-                _menuOption(
-                  icon: Icons.person_pin_rounded,
-                  title: 'Switch Persona',
-                  subtitle: 'Active: $activePersona',
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openPersonaSwitchSheet();
-                  },
-                ),
-                _menuOption(
-                  icon: Icons.tune_rounded,
-                  title: 'Settings',
-                  subtitle:
-                      '${widget.settings.model}  ·  ${widget.settings.baseUrl}',
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    widget.onOpenSettings();
-                  },
-                ),
-                _menuOption(
-                  icon: Icons.refresh_rounded,
-                  title: 'Restart Chat',
-                  subtitle: 'Start over from opening greeting',
-                  danger: true,
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _startFresh();
-                  },
-                ),
-              ],
+              ),
             ),
           ),
         );
