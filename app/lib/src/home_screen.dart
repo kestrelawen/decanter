@@ -2418,7 +2418,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Row(
                         children: <Widget>[
                           const Text(
-                            'LOREBOOK INSPECTOR',
+                            'LOREBOOK',
                             style: TextStyle(
                               color: Glass.textPrimary,
                               fontSize: 12,

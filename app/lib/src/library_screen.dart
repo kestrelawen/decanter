@@ -259,18 +259,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return ScrollConfiguration(
       behavior: const ScrollBehavior().copyWith(overscroll: false),
       child: _isGrid
-          ? GridView.builder(
-              physics: const ClampingScrollPhysics(),
-              padding: const EdgeInsets.only(top: 2, bottom: 4),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.70,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: _entries.length,
-              itemBuilder: (BuildContext context, int index) =>
-                  _cardGridItem(_entries[index]),
+          ? LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final int columns = constraints.maxWidth > 500 ? 4 : 2;
+                return GridView.builder(
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.only(top: 2, bottom: 4),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    childAspectRatio: 0.70,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: _entries.length,
+                  itemBuilder: (BuildContext context, int index) =>
+                      _cardGridItem(_entries[index]),
+                );
+              },
             )
           : ListView.builder(
               physics: const ClampingScrollPhysics(),
