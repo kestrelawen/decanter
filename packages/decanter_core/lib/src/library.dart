@@ -319,6 +319,118 @@ class LibraryStore {
     return entry;
   }
 
+  /// Updates an existing character card and rewrites its metadata.
+  LibraryEntry saveCard(String id, TavernCard card) {
+    ensureDirectories();
+    final Directory directory = _cardDirectory(id);
+    if (!directory.existsSync()) {
+      directory.createSync(recursive: true);
+    }
+
+    _writeAtomically(
+      File('${directory.path}/$_cardName'),
+      const JsonEncoder.withIndent('  ').convert(card.toJson()),
+    );
+
+    final LibraryEntry? existing = find(id);
+    final LibraryEntry updated = LibraryEntry(
+      id: id,
+      name: card.name.trim().isEmpty ? (existing?.name ?? 'Unnamed card') : card.name.trim(),
+      creator: card.creator,
+      fileName: existing?.fileName ?? '${card.name}.json',
+      preview: _preview(card.description),
+      greetingCount: card.greetings.length,
+      loreCount: card.characterBook?.entries.length ?? 0,
+      spec: card.spec.id,
+      importedAt: existing?.importedAt ?? DateTime.now(),
+    );
+
+    _writeAtomically(
+      File('${directory.path}/$_metaName'),
+      jsonEncode(updated.toJson()),
+    );
+
+    return updated;
+  }
+
+  /// Creates a new character card from scratch in the library.
+  LibraryEntry createCard(TavernCard card, {Uint8List? imageBytes}) {
+    ensureDirectories();
+    final String stem =
+        card.name.trim().isEmpty ? 'new-character' : card.name.trim();
+    final String id = _uniqueId(slugify(stem));
+    final Directory directory = _cardDirectory(id)..createSync(recursive: true);
+
+    _writeAtomically(
+      File('${directory.path}/$_cardName'),
+      const JsonEncoder.withIndent('  ').convert(card.toJson()),
+    );
+
+    if (imageBytes != null && imageBytes.isNotEmpty) {
+      File('${directory.path}/source.png').writeAsBytesSync(imageBytes);
+    }
+
+    final LibraryEntry entry = LibraryEntry(
+      id: id,
+      name: card.name.trim().isEmpty ? 'New Character' : card.name.trim(),
+      creator: card.creator,
+      fileName: '${card.name.trim()}.json',
+      preview: _preview(card.description),
+      greetingCount: card.greetings.length,
+      loreCount: card.characterBook?.entries.length ?? 0,
+      spec: card.spec.id,
+      importedAt: DateTime.now(),
+    );
+
+    _writeAtomically(
+      File('${directory.path}/$_metaName'),
+      jsonEncode(entry.toJson()),
+    );
+
+    return entry;
+  }
+
+  /// Exports the stored character card as a Character Card V2 JSON string.
+  String exportCardJson(String id) {
+    final TavernCard card = loadCard(id);
+    return const JsonEncoder.withIndent('  ').convert(card.toJson());
+  }
+
+  /// Exports a conversation as a SillyTavern-compatible chat JSON document.
+  String exportChatJson(
+    String characterId,
+    String chatId, {
+    String userName = 'User',
+  }) {
+    final StoredChat chat = loadChat(characterId, chatId);
+    final TavernCard? card = exists(characterId) ? loadCard(characterId) : null;
+    final String charName = card?.name ?? 'Character';
+
+    final Map<String, dynamic> export = <String, dynamic>{
+      'user_name': userName,
+      'character_name': charName,
+      'create_date': (chat.createdAt ?? DateTime.now()).toIso8601String(),
+      'chat_metadata': <String, dynamic>{
+        'title': chat.title,
+      },
+      'mes': chat.messages.map((StoredChatMessage m) {
+        final bool isUser = m.role == ChatRole.user;
+        return <String, dynamic>{
+          'name': isUser ? userName : charName,
+          'is_user': isUser,
+          'is_name': true,
+          'send_date': (m.createdAt ?? DateTime.now()).toIso8601String(),
+          'mes': m.content,
+          if (m.swipes.isNotEmpty) 'swipes': m.swipes,
+          'swipe_id': m.swipeIndex,
+          'extra': <String, dynamic>{},
+        };
+      }).toList(),
+    };
+
+    return const JsonEncoder.withIndent('  ').convert(export);
+  }
+
   /// Removes a card and its conversations.
   void delete(String id) {
     final Directory directory = _cardDirectory(id);

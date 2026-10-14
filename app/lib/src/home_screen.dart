@@ -4,6 +4,7 @@ import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'card_editor.dart';
 import 'chat_content.dart';
 import 'chat_controller.dart';
 import 'glass.dart';
@@ -39,11 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
   late ChatController _chat;
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
-
-  int get _greetingIndex =>
-      (_chat.history.isNotEmpty && _chat.history.first.swipes.isNotEmpty)
-          ? _chat.history.first.swipeIndex
-          : 0;
 
   /// Revision of the chat when it was last saved, so unchanged state does not
   /// rewrite the file.
@@ -288,12 +284,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _follow();
   }
 
-  void _cycleGreeting() {
-    final int count = widget.card.greetings.length;
-    if (count < 2 || _chat.history.isEmpty) return;
-    final int next = (_greetingIndex + 1) % count;
-    _chat.useGreeting(next);
-  }
 
   // --- build --------------------------------------------------------------
 
@@ -344,8 +334,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _header() {
-    final int greetingCount = widget.card.greetings.length;
-
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
       child: SheenSweep(
@@ -362,46 +350,37 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
             ],
             Expanded(
-              child: GestureDetector(
-                // Tapping cycles alternate greetings — the only way to reach the
-                // second opening without editing the card.
-                onTap: greetingCount > 1 ? _cycleGreeting : null,
-                behavior: HitTestBehavior.opaque,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      widget.card.name.isEmpty
-                          ? 'Unnamed card'
-                          : widget.card.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Glass.textPrimary,
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w600,
-                      ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    _chat.card.name.isEmpty
+                        ? 'Unnamed card'
+                        : _chat.card.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Glass.textPrimary,
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      <String>[
-                        widget.settings.model,
-                        if (greetingCount > 1)
-                          'greeting ${_greetingIndex + 1}/$greetingCount'
-                        else
-                          '${_chat.history.length} msgs',
-                        if (!widget.settings.isConfigured) 'no backend',
-                      ].join('  ·  '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Glass.textFaint,
-                        fontSize: 10.5,
-                        letterSpacing: 0.3,
-                      ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    <String>[
+                      widget.settings.model,
+                      '${_chat.history.length} msgs',
+                      if (!widget.settings.isConfigured) 'no backend',
+                    ].join('  ·  '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Glass.textFaint,
+                      fontSize: 10.5,
+                      letterSpacing: 0.3,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
@@ -1744,6 +1723,72 @@ class _HomeScreenState extends State<HomeScreen> {
                       widget.onOpenSettings();
                     },
                   ),
+                  if (widget.store != null) ...<Widget>[
+                    _menuOption(
+                      icon: Icons.edit_note_rounded,
+                      title: 'Edit Character',
+                      subtitle: 'Name, personality, greetings & prompt',
+                      onTap: () async {
+                        Navigator.of(sheetContext).pop();
+                        final TavernCard? updated = await CardEditorSheet.show(
+                          context: context,
+                          card: _chat.card,
+                          entryId: widget.entryId,
+                          store: widget.store!,
+                        );
+                        if (updated != null && mounted) {
+                          setState(() {
+                            _chat.updateCard(updated);
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Updated "${updated.name}"'),
+                              backgroundColor: const Color.fromRGBO(30, 24, 22, 0.95),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    if (widget.entryId != null && _activeChatId != null) ...<Widget>[
+                      _menuOption(
+                        icon: Icons.file_download_outlined,
+                        title: 'Export Chat (JSON)',
+                        subtitle: 'SillyTavern compatible chat JSON',
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          final String jsonStr = widget.store!.exportChatJson(
+                            widget.entryId!,
+                            _activeChatId!,
+                            userName: widget.settings.activePersona.name,
+                          );
+                          Clipboard.setData(ClipboardData(text: jsonStr));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Chat JSON copied to clipboard!'),
+                              backgroundColor: Color.fromRGBO(30, 24, 22, 0.95),
+                            ),
+                          );
+                        },
+                      ),
+                      _menuOption(
+                        icon: Icons.badge_outlined,
+                        title: 'Export Character (JSON)',
+                        subtitle: 'Character Card V2 JSON document',
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          final String jsonStr =
+                              widget.store!.exportCardJson(widget.entryId!);
+                          Clipboard.setData(ClipboardData(text: jsonStr));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Character Card JSON copied to clipboard!'),
+                              backgroundColor: Color.fromRGBO(30, 24, 22, 0.95),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ],
                   _menuOption(
                     icon: Icons.refresh_rounded,
                     title: 'Restart Chat',
@@ -2021,7 +2066,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const Spacer(),
                             Text(
-                              '$contextCost / ${budget > 0 ? '$budget tok' : '∞'}',
+                              '$contextCost / ${budget > 0 ? (budget >= 1000000 ? '${(budget / 1000000).toStringAsFixed(budget % 1000000 == 0 ? 0 : 1)}M tok' : (budget >= 1000 ? '${(budget / 1000).toStringAsFixed(budget % 1000 == 0 ? 0 : 1)}k tok' : '$budget tok')) : '∞'}',
                               style: const TextStyle(
                                 color: Glass.textPrimary,
                                 fontSize: 12,

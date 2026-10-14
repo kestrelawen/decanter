@@ -106,6 +106,91 @@ class TavernCard {
     return world is String && world.isNotEmpty ? world : null;
   }
 
+  /// Factory constructor to create a new Character Card V2 from scratch.
+  factory TavernCard.create({
+    required String name,
+    String description = '',
+    String personality = '',
+    String scenario = '',
+    String firstMes = '',
+    List<String> alternateGreetings = const <String>[],
+    String creatorNotes = '',
+    String systemPrompt = '',
+    String postHistoryInstructions = '',
+    String mesExample = '',
+    List<String> tags = const <String>[],
+    String creator = '',
+    String characterVersion = '1.0',
+    CharacterBook? characterBook,
+  }) {
+    return TavernCard(
+      spec: CardSpec.v2,
+      specVersion: '2.0',
+      name: name,
+      description: description,
+      personality: personality,
+      scenario: scenario,
+      firstMes: firstMes,
+      mesExample: mesExample,
+      creatorNotes: creatorNotes,
+      systemPrompt: systemPrompt,
+      postHistoryInstructions: postHistoryInstructions,
+      alternateGreetings: List<String>.from(alternateGreetings),
+      tags: List<String>.from(tags),
+      creator: creator,
+      characterVersion: characterVersion,
+      extensions: <String, dynamic>{},
+      characterBook: characterBook,
+      raw: <String, dynamic>{},
+      dataExtras: <String, dynamic>{},
+    );
+  }
+
+  TavernCard copyWith({
+    CardSpec? spec,
+    String? specVersion,
+    String? name,
+    String? description,
+    String? personality,
+    String? scenario,
+    String? firstMes,
+    String? mesExample,
+    String? creatorNotes,
+    String? systemPrompt,
+    String? postHistoryInstructions,
+    List<String>? alternateGreetings,
+    List<String>? tags,
+    String? creator,
+    String? characterVersion,
+    Map<String, dynamic>? extensions,
+    CharacterBook? characterBook,
+    Map<String, dynamic>? raw,
+    Map<String, dynamic>? dataExtras,
+  }) {
+    return TavernCard(
+      spec: spec ?? this.spec,
+      specVersion: specVersion ?? this.specVersion,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      personality: personality ?? this.personality,
+      scenario: scenario ?? this.scenario,
+      firstMes: firstMes ?? this.firstMes,
+      mesExample: mesExample ?? this.mesExample,
+      creatorNotes: creatorNotes ?? this.creatorNotes,
+      systemPrompt: systemPrompt ?? this.systemPrompt,
+      postHistoryInstructions:
+          postHistoryInstructions ?? this.postHistoryInstructions,
+      alternateGreetings: alternateGreetings ?? this.alternateGreetings,
+      tags: tags ?? this.tags,
+      creator: creator ?? this.creator,
+      characterVersion: characterVersion ?? this.characterVersion,
+      extensions: extensions ?? this.extensions,
+      characterBook: characterBook ?? this.characterBook,
+      raw: raw ?? this.raw,
+      dataExtras: dataExtras ?? this.dataExtras,
+    );
+  }
+
   /// Parses a card from its decoded JSON object.
   ///
   /// A document with no `spec` field — or with `spec: chara_card_v1` — is

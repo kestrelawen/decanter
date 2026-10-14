@@ -23,7 +23,7 @@ class ChatController extends ChangeNotifier {
     reset();
   }
 
-  final TavernCard card;
+  TavernCard card;
   AppSettings settings;
 
   final BackendFactory _backendFactory;
@@ -320,6 +320,14 @@ class ChatController extends ChangeNotifier {
   /// Swaps in new settings without disturbing the conversation.
   void updateSettings(AppSettings next) {
     settings = next;
+    notifyListeners();
+  }
+
+  /// Updates the character card without resetting conversation history.
+  void updateCard(TavernCard next) {
+    card = next;
+    _scan = _runScan();
+    _revision++;
     notifyListeners();
   }
 

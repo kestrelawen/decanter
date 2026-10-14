@@ -1553,5 +1553,94 @@ void main() {
     test('default context budget is 32768 tokens (32k)', () {
       expect(const AppSettings().contextBudget, 32768);
     });
+
+    testWidgets('tapping top bar bot name does not cycle greetings', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            card: loadBundledCard(),
+            settings: configured,
+            onOpenSettings: () async {},
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final String initialOpening = loadBundledCard().greetings.first;
+      expect(find.textContaining(initialOpening), findsOneWidget);
+
+      // Tap on the card title in header
+      await tester.tap(find.text(loadBundledCard().name));
+      await tester.pump();
+
+      // Opening must stay unchanged!
+      expect(find.textContaining(initialOpening), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets(
+      'settings screen context budget input allows setting large token count',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SettingsScreen(
+              initial: configured,
+              onSave: (AppSettings s) {},
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(find.text('Context Budget'), findsOneWidget);
+        expect(find.text('1M'), findsOneWidget);
+        expect(find.text('256k'), findsOneWidget);
+
+        // Tap on 256k preset chip
+        await tester.tap(find.text('256k'));
+        await tester.pump();
+
+        expect(find.textContaining('256k tokens'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets(
+      'more options menu contains edit character and export options',
+      (WidgetTester tester) async {
+        final Directory tempDir =
+            Directory.systemTemp.createTempSync('decanter-test');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final LibraryStore store = LibraryStore(tempDir);
+        final LibraryEntry entry = store.createCard(loadBundledCard());
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: HomeScreen(
+              card: loadBundledCard(),
+              settings: configured,
+              onOpenSettings: () async {},
+              store: store,
+              entryId: entry.id,
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Open 3-dots menu
+        await tester.tap(find.byIcon(Icons.more_vert_rounded));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.text('Edit Character'), findsOneWidget);
+        expect(find.text('Export Chat (JSON)'), findsOneWidget);
+        expect(find.text('Export Character (JSON)'), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
   });
 }
+

@@ -659,4 +659,89 @@ void main() {
       expect(entry.importedAt, isNull);
     });
   });
+
+  group('Card creation, editing, and export', () {
+    test('createCard writes card and returns entry', () {
+      final TavernCard newCard = TavernCard.create(
+        name: 'Lyra',
+        description: 'An inventive alchemist.',
+        personality: 'Curious, quick-witted.',
+        firstMes: 'Welcome to my workshop!',
+        alternateGreetings: <String>['Need something brewed?'],
+      );
+
+      final LibraryEntry entry = store.createCard(newCard);
+      expect(entry.name, 'Lyra');
+      expect(entry.greetingCount, 2);
+      expect(store.exists(entry.id), isTrue);
+
+      final TavernCard loaded = store.loadCard(entry.id);
+      expect(loaded.name, 'Lyra');
+      expect(loaded.firstMes, 'Welcome to my workshop!');
+      expect(loaded.alternateGreetings, <String>['Need something brewed?']);
+    });
+
+    test('saveCard updates existing card content and metadata', () {
+      final LibraryEntry initial = store.importCard(bytes: cardBytes(name: 'Mira'));
+      final TavernCard card = store.loadCard(initial.id);
+
+      final TavernCard updated = card.copyWith(
+        name: 'Mira Vance',
+        description: 'Updated master cartographer description.',
+        personality: 'Quiet and calculating.',
+      );
+
+      final LibraryEntry saved = store.saveCard(initial.id, updated);
+      expect(saved.name, 'Mira Vance');
+      expect(saved.preview, contains('Updated master cartographer'));
+
+      final TavernCard reloaded = store.loadCard(initial.id);
+      expect(reloaded.name, 'Mira Vance');
+      expect(reloaded.personality, 'Quiet and calculating.');
+    });
+
+    test('exportCardJson produces valid Character Card V2 JSON', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(name: 'Lyra', creator: 'Alchemist'),
+      );
+      final String jsonStr = store.exportCardJson(entry.id);
+      final Map<String, dynamic> decoded =
+          jsonDecode(jsonStr) as Map<String, dynamic>;
+
+      expect(decoded['spec'], 'chara_card_v2');
+      final Map<String, dynamic> data =
+          decoded['data'] as Map<String, dynamic>;
+      expect(data['name'], 'Lyra');
+      expect(data['creator'], 'Alchemist');
+    });
+
+    test('exportChatJson produces SillyTavern-compatible chat export', () {
+      final LibraryEntry entry = store.importCard(bytes: cardBytes(name: 'Lyra'));
+      store.saveChat(
+        entry.id,
+        <ChatMessage>[
+          ChatMessage(role: ChatRole.assistant, content: 'Greetings traveller.'),
+          ChatMessage(role: ChatRole.user, content: 'Hello Lyra!'),
+        ],
+        chatId: 'thread-1',
+        title: 'First Encounter',
+      );
+
+      final String jsonStr = store.exportChatJson(entry.id, 'thread-1', userName: 'Player1');
+      final Map<String, dynamic> decoded =
+          jsonDecode(jsonStr) as Map<String, dynamic>;
+
+      expect(decoded['user_name'], 'Player1');
+      expect(decoded['character_name'], 'Lyra');
+      final List<dynamic> mes = decoded['mes'] as List<dynamic>;
+      expect(mes.length, 2);
+      expect(mes[0]['name'], 'Lyra');
+      expect(mes[0]['mes'], 'Greetings traveller.');
+      expect(mes[0]['is_user'], isFalse);
+      expect(mes[1]['name'], 'Player1');
+      expect(mes[1]['mes'], 'Hello Lyra!');
+      expect(mes[1]['is_user'], isTrue);
+    });
+  });
 }
+

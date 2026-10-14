@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 
+import 'card_editor.dart';
 import 'glass.dart';
 import 'home_screen.dart';
 import 'library_platform.dart';
@@ -172,6 +173,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
+  Future<void> _createCharacter() async {
+    final TavernCard? created = await CardEditorSheet.show(
+      context: context,
+      store: widget.store,
+    );
+    if (created != null && mounted) {
+      _refresh();
+      setState(() {
+        _notice = 'Created "${created.name}"';
+        _error = null;
+      });
+    }
+  }
+
+  Future<void> _editCharacter(LibraryEntry entry) async {
+    final TavernCard card;
+    try {
+      card = widget.store.loadCard(entry.id);
+    } catch (e) {
+      setState(() => _error = 'Could not load ${entry.name}: $e');
+      return;
+    }
+
+    final TavernCard? updated = await CardEditorSheet.show(
+      context: context,
+      card: card,
+      entryId: entry.id,
+      store: widget.store,
+    );
+    if (updated != null && mounted) {
+      _refresh();
+      setState(() {
+        _notice = 'Updated "${updated.name}"';
+        _error = null;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -335,24 +374,45 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
 
-              // Top action bar (Delete & Continue badge)
+              // Top action bar (Edit, Delete & Continue badge)
               Positioned(
                 top: 8,
                 right: 8,
-                child: GestureDetector(
-                  onTap: () => _confirmDelete(entry),
-                  child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: const BoxDecoration(
-                      color: Color.fromRGBO(0, 0, 0, 0.45),
-                      shape: BoxShape.circle,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    GestureDetector(
+                      onTap: () => _editCharacter(entry),
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: const BoxDecoration(
+                          color: Color.fromRGBO(0, 0, 0, 0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.edit_note_rounded,
+                          size: 15,
+                          color: Glass.textSecondary,
+                        ),
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.delete_outline_rounded,
-                      size: 15,
-                      color: Glass.textSecondary,
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () => _confirmDelete(entry),
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: const BoxDecoration(
+                          color: Color.fromRGBO(0, 0, 0, 0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 15,
+                          color: Glass.textSecondary,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
 
@@ -723,29 +783,72 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _importBar() {
-    return GestureDetector(
-      onTap: _importing ? null : _import,
-      child: GlassPanel(
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        tintStrength: _importing ? 0.9 : 2.0,
-        child: Center(
-          child: _importing
-              ? const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text(
-                  'IMPORT A CARD',
-                  style: TextStyle(
-                    color: Glass.textPrimary,
-                    fontSize: 12,
-                    letterSpacing: 1.8,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: GestureDetector(
+            onTap: _importing ? null : _import,
+            child: GlassPanel(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              tintStrength: _importing ? 0.9 : 1.8,
+              child: Center(
+                child: _importing
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(Icons.download_rounded,
+                              size: 16, color: Glass.textSecondary),
+                          SizedBox(width: 6),
+                          Text(
+                            'IMPORT A CARD',
+                            style: TextStyle(
+                              color: Glass.textPrimary,
+                              fontSize: 11,
+                              letterSpacing: 1.3,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: GestureDetector(
+            onTap: _createCharacter,
+            child: const GlassPanel(
+              padding: EdgeInsets.symmetric(vertical: 14),
+              tintStrength: 1.8,
+              child: Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.add_rounded,
+                        size: 16, color: Glass.textSecondary),
+                    SizedBox(width: 6),
+                    Text(
+                      'CREATE CARD',
+                      style: TextStyle(
+                        color: Glass.textPrimary,
+                        fontSize: 11.5,
+                        letterSpacing: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

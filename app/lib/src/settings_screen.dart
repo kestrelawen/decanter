@@ -49,6 +49,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _updateToken = TextEditingController(
     text: widget.initial.updateToken,
   );
+  late final TextEditingController _contextBudget = TextEditingController(
+    text: widget.initial.contextBudget.toString(),
+  );
 
   bool _revealKey = false;
   bool _fetchingModels = false;
@@ -62,6 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _persona.dispose();
     _updateRepo.dispose();
     _updateToken.dispose();
+    _contextBudget.dispose();
     super.dispose();
   }
 
@@ -80,6 +84,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         model: _model.text,
       );
     });
+  }
+
+  static String _formatTokens(int count) {
+    if (count <= 0) return 'Unlimited';
+    if (count >= 1000000) {
+      final double m = count / 1000000;
+      return '${m.toStringAsFixed(count % 1000000 == 0 ? 0 : 1)}M';
+    }
+    if (count >= 1000) {
+      final double k = count / 1000;
+      return '${k.toStringAsFixed(count % 1000 == 0 ? 0 : 1)}k';
+    }
+    return '$count';
   }
 
   Widget _fetchModelsButton() {
@@ -171,12 +188,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final int? detectedBudget = contextLengths[chosen];
     setState(() {
       _model.text = chosen;
+      final int newBudget = (detectedBudget != null && detectedBudget > 0)
+          ? detectedBudget.clamp(0, 1000000)
+          : _draft.contextBudget;
       _draft = _draft.copyWith(
         model: chosen,
-        contextBudget: (detectedBudget != null && detectedBudget > 0)
-            ? detectedBudget
-            : _draft.contextBudget,
+        contextBudget: newBudget,
       );
+      _contextBudget.text = newBudget.toString();
       _modelError = null;
     });
   }
@@ -655,50 +674,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                             const Spacer(),
-                            Text(
-                              _draft.contextBudget > 0
-                                  ? '${_draft.contextBudget ~/ 1024}k tokens'
-                                  : 'Unlimited',
-                              style: const TextStyle(
-                                color: Glass.textPrimary,
-                                fontSize: 12.5,
-                                fontFeatures: <FontFeature>[
-                                  FontFeature.tabularFigures(),
-                                ],
+                            Container(
+                              width: 124,
+                              height: 32,
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: Glass.shade(0.35),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Glass.tint(0.18),
+                                  width: 0.8,
+                                ),
+                              ),
+                              alignment: Alignment.centerRight,
+                              child: TextField(
+                                controller: _contextBudget,
+                                keyboardType: TextInputType.number,
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  fontFeatures: <FontFeature>[
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                  suffixText: ' tok',
+                                  suffixStyle: TextStyle(
+                                    color: Glass.textFaint,
+                                    fontSize: 10.5,
+                                  ),
+                                ),
+                                onChanged: (String text) {
+                                  final int? val = int.tryParse(text.trim());
+                                  if (val != null) {
+                                    final int clamped = val.clamp(0, 1000000);
+                                    setState(() {
+                                      _draft = _draft.copyWith(contextBudget: clamped);
+                                    });
+                                  }
+                                },
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Maximum context tokens sent to model. 0 retains full history without trimming.',
-                          style: TextStyle(
+                        Text(
+                          _draft.contextBudget > 0
+                              ? 'Model context limit: ${_formatTokens(_draft.contextBudget)} tokens (${_draft.contextBudget} tok)'
+                              : '0 retains full conversation history without budget trimming.',
+                          style: const TextStyle(
                             color: Glass.textFaint,
                             fontSize: 11,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: Glass.tint(0.7),
+                            inactiveTrackColor: Glass.shade(0.35),
+                            thumbColor: Glass.textPrimary,
+                            overlayColor: Glass.tint(0.1),
+                          ),
+                          child: Slider(
+                            value: _draft.contextBudget.clamp(0, 1000000).toDouble(),
+                            min: 0,
+                            max: 1000000,
+                            divisions: 200,
+                            onChanged: (double v) {
+                              final int budget = v.round();
+                              setState(() {
+                                _draft = _draft.copyWith(contextBudget: budget);
+                                _contextBudget.text = budget.toString();
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 4),
                         Wrap(
                           spacing: 6,
                           runSpacing: 6,
                           children: <int>[
-                            8192,
-                            16384,
                             32768,
                             65536,
                             131072,
+                            262144,
+                            524288,
+                            1000000,
                             0,
                           ].map((int b) {
                             final bool selected = _draft.contextBudget == b;
-                            final String label =
-                                b == 0 ? 'Unlimited' : '${b ~/ 1024}k';
+                            final String label = _formatTokens(b);
                             return GestureDetector(
-                              onTap: () => setState(() =>
-                                  _draft = _draft.copyWith(contextBudget: b)),
+                              onTap: () {
+                                setState(() {
+                                  _draft = _draft.copyWith(contextBudget: b);
+                                  _contextBudget.text = b.toString();
+                                });
+                              },
                               child: GlassPill(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
+                                  horizontal: 9,
+                                  vertical: 4,
                                 ),
                                 tintStrength: selected ? 1.6 : 0.8,
                                 child: Text(
