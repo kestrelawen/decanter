@@ -1584,6 +1584,13 @@ void main() {
     testWidgets(
       'settings screen context budget input allows setting large token count',
       (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(800, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
         await tester.pumpWidget(
           MaterialApp(
             home: SettingsScreen(
