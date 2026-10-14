@@ -1698,13 +1698,13 @@ void main() {
         expect(find.text('Precise / CoT'), findsOneWidget);
         expect(find.text('Novel / Longform'), findsOneWidget);
 
-        // Tap Creative Storyteller preset
-        await tester.tap(find.text('Creative Storyteller'));
+        // Tap Precise / CoT preset
+        await tester.tap(find.text('Precise / CoT'));
         await tester.pump();
 
-        // Sampler values should update to Creative Storyteller defaults (temp 1.10, top_p 0.98)
-        expect(find.text('1.10'), findsOneWidget);
-        expect(find.text('0.98'), findsOneWidget);
+        // Sampler values should update to Precise / CoT defaults (temp 0.30, top_p 0.85)
+        expect(find.text('0.30'), findsOneWidget);
+        expect(find.text('0.85'), findsOneWidget);
 
         await tester.pumpWidget(const SizedBox.shrink());
       },
