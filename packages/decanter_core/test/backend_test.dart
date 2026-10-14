@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:decanter_core/decanter_core.dart';
@@ -6,11 +7,16 @@ import 'package:test/test.dart';
 /// A transport that replays canned SSE lines, so the streaming parser is
 /// exercised without a network.
 class FakeTransport implements HttpTransport {
-  FakeTransport({this.statusCode = 200, List<String>? lines})
-      : lines = lines ?? const <String>[];
+  FakeTransport({
+    this.statusCode = 200,
+    List<String>? lines,
+    Stream<String>? stream,
+  })  : lines = lines ?? const <String>[],
+        _stream = stream;
 
   final int statusCode;
   final List<String> lines;
+  final Stream<String>? _stream;
 
   Uri? lastUrl;
   Map<String, String>? lastHeaders;
@@ -31,7 +37,7 @@ class FakeTransport implements HttpTransport {
     lastBody = body;
     return StreamedResponse(
       statusCode: statusCode,
-      lines: Stream<String>.fromIterable(lines),
+      lines: _stream ?? Stream<String>.fromIterable(lines),
     );
   }
 
@@ -172,6 +178,33 @@ void main() {
       );
       final text = await backendWith(transport).complete(requestWith());
       expect(text, 'one two three');
+    });
+
+    test(
+        'a connection-closed error after chunks arrive concludes the stream gracefully',
+        () async {
+      final StreamController<String> controller = StreamController<String>();
+      controller.add(sse('Hello world'));
+      controller.addError(Exception(
+          'HttpException: Connection closed while receiving data, uri = ...'));
+
+      final transport = FakeTransport(stream: controller.stream);
+      final chunks =
+          await backendWith(transport).stream(requestWith()).toList();
+      expect(chunks.map((ChatChunk c) => c.delta).join(), 'Hello world');
+      expect(chunks.last.done, isTrue);
+    });
+
+    test('a connection-closed error before any chunk throws', () async {
+      final StreamController<String> controller = StreamController<String>();
+      controller.addError(Exception(
+          'HttpException: Connection closed while receiving data'));
+
+      final transport = FakeTransport(stream: controller.stream);
+      expect(
+        () => backendWith(transport).stream(requestWith()).toList(),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 

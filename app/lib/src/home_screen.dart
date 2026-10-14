@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 
+import 'chat_content.dart';
 import 'chat_controller.dart';
 import 'glass.dart';
 import 'settings.dart';
@@ -408,13 +409,9 @@ class _HomeScreenState extends State<HomeScreen> {
             children: <Widget>[
               text.isEmpty && streaming
                   ? const _ThinkingDots()
-                  : Text(
-                      text,
-                      style: TextStyle(
-                        color: mine ? Glass.textPrimary : Glass.textSecondary,
-                        fontSize: 14.5,
-                        height: 1.42,
-                      ),
+                  : ChatRichContent(
+                      text: text,
+                      isUser: mine,
                     ),
               if (showSwipeControls) ...<Widget>[
                 const SizedBox(height: 8),

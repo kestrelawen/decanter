@@ -309,9 +309,20 @@ class ChatController extends ChangeNotifier {
       },
       onError: (Object error) {
         if (!_cancelled) {
-          _error = error is BackendException
-              ? error.friendlyMessage
-              : 'Request failed: $error';
+          final String s = error.toString().toLowerCase();
+          final bool isDroppedSocket =
+              s.contains('connection closed while receiving data') ||
+              s.contains('connection closed before full header') ||
+              s.contains('connection reset') ||
+              s.contains('software caused connection abort') ||
+              s.contains('broken pipe');
+          if (_streamingText.trim().isNotEmpty && isDroppedSocket) {
+            _error = null;
+          } else {
+            _error = error is BackendException
+                ? error.friendlyMessage
+                : 'Request failed: $error';
+          }
         }
         _finishTurn();
       },
@@ -336,6 +347,10 @@ class ChatController extends ChangeNotifier {
       if (reply.isEmpty) {
         _error ??= 'The provider returned an empty reply.';
       } else {
+        if (_error != null &&
+            _error!.toLowerCase().contains('connection closed')) {
+          _error = null;
+        }
         if (regenIndex != null && regenIndex < _history.length) {
           _history[regenIndex] = _history[regenIndex].withAddedSwipe(reply);
         } else {

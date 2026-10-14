@@ -318,36 +318,61 @@ class OpenAiCompatibleBackend implements ChatBackend {
   /// error would otherwise discard a reply the user can already see.
   Stream<ChatChunk> _parseSse(Stream<String> lines) async* {
     var sawTerminator = false;
+    var receivedAnyChunk = false;
 
-    await for (final String rawLine in lines) {
-      final String line = rawLine.trimRight();
-      if (line.isEmpty) continue;
-      if (line.startsWith(':')) continue; // SSE comment / keep-alive
+    try {
+      await for (final String rawLine in lines) {
+        final String line = rawLine.trimRight();
+        if (line.isEmpty) continue;
+        if (line.startsWith(':')) continue; // SSE comment / keep-alive
 
-      if (!line.startsWith('data:')) {
-        // `event:` and `id:` lines carry no content for this API shape.
-        continue;
+        if (!line.startsWith('data:')) {
+          // `event:` and `id:` lines carry no content for this API shape.
+          continue;
+        }
+
+        final String payload = line.substring(5).trim();
+        if (payload.isEmpty) continue;
+
+        if (payload == '[DONE]') {
+          sawTerminator = true;
+          yield const ChatChunk(done: true);
+          break;
+        }
+
+        final Map<String, dynamic>? json = _tryDecode(payload);
+        if (json == null) continue;
+
+        final ChatChunk? chunk = _chunkFrom(json);
+        if (chunk != null) {
+          receivedAnyChunk = true;
+          yield chunk;
+        }
       }
-
-      final String payload = line.substring(5).trim();
-      if (payload.isEmpty) continue;
-
-      if (payload == '[DONE]') {
-        sawTerminator = true;
-        yield const ChatChunk(done: true);
-        break;
+    } on Object catch (error) {
+      // Some providers abruptly close the TCP connection at the end of streaming
+      // without sending [DONE] or a clean HTTP chunked terminator (e.g. gpurouter.io).
+      // If we already received valid content, treat a connection-closed exception
+      // as a stream conclusion rather than failing an arrived reply.
+      if (receivedAnyChunk && _isConnectionClosed(error)) {
+        if (!sawTerminator) yield const ChatChunk(done: true);
+        return;
       }
-
-      final Map<String, dynamic>? json = _tryDecode(payload);
-      if (json == null) continue;
-
-      final ChatChunk? chunk = _chunkFrom(json);
-      if (chunk != null) yield chunk;
+      rethrow;
     }
 
     // Some providers close the socket without sending [DONE]. Emitting the
     // terminal chunk anyway keeps callers from hanging on a finished stream.
     if (!sawTerminator) yield const ChatChunk(done: true);
+  }
+
+  static bool _isConnectionClosed(Object error) {
+    final String s = error.toString().toLowerCase();
+    return s.contains('connection closed while receiving data') ||
+        s.contains('connection closed before full header was received') ||
+        s.contains('connection reset') ||
+        s.contains('software caused connection abort') ||
+        s.contains('broken pipe');
   }
 
   /// Asks the provider which models it serves.

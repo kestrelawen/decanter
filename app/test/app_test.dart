@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:decanter/main.dart';
 import 'package:decanter/src/chat_controller.dart';
+import 'package:decanter/src/chat_content.dart';
 import 'package:decanter/src/glass.dart';
 import 'package:decanter/src/home_screen.dart';
 import 'package:decanter/src/library_platform.dart';
@@ -1217,4 +1218,54 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });
+
+  group('chat rich content', () {
+    testWidgets('renders plain text with SelectableText', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ChatRichContent(
+              text: 'Hello world',
+              isUser: false,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Hello world'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('renders asterisks as styled spans and markdown images', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ChatRichContent(
+              text:
+                  'Look at this map: ![](www.example.com/map.jpeg) *smiles warmly*',
+              isUser: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder imageFinder = find.byType(Image);
+      expect(imageFinder, findsOneWidget);
+      final Image img = tester.widget<Image>(imageFinder);
+      expect(
+        (img.image as NetworkImage).url,
+        'https://www.example.com/map.jpeg',
+      );
+
+      expect(find.textContaining('Look at this map:'), findsOneWidget);
+      expect(find.textContaining('smiles warmly'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
 }
+
