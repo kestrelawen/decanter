@@ -197,8 +197,8 @@ void main() {
 
     test('a connection-closed error before any chunk throws', () async {
       final StreamController<String> controller = StreamController<String>();
-      controller.addError(Exception(
-          'HttpException: Connection closed while receiving data'));
+      controller.addError(
+          Exception('HttpException: Connection closed while receiving data'));
 
       final transport = FakeTransport(stream: controller.stream);
       expect(
