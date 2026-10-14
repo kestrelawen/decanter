@@ -20,24 +20,7 @@ Future<void> main() async {
   final SettingsStore settingsStore = SettingsStore();
   final AppSettings settings = await settingsStore.load();
 
-  final LibraryStore library;
-  String? startupError;
-  try {
-    // The root comes from the platform, because only it knows where this app is
-    // allowed to write.
-    final String root = await const LibraryPlatform().documentsDirectory();
-    library = LibraryStore(Directory('$root/library'))..ensureDirectories();
-  } on Object catch (error) {
-    // Failing to open storage is worth saying out loud, but not worth refusing to
-    // launch over: the app runs from a temporary directory instead so the user
-    // can see what happened rather than watching it die before it draws.
-    startupError =
-        'Could not open a place to save your characters, so nothing will '
-        'persist. $error';
-    library = LibraryStore(
-      Directory('${Directory.systemTemp.path}/decanter-library'),
-    )..ensureDirectories();
-  }
+  final (LibraryStore library, String? startupError) = await _openLibrary();
 
   await _seedSampleCard(library);
 
@@ -49,6 +32,31 @@ Future<void> main() async {
       startupError: startupError,
     ),
   );
+}
+
+/// Opens the library, falling back to a temporary directory.
+///
+/// Returns the store and, when storage could not be opened at all, the
+/// explanation to show the user. A record rather than a nullable out-parameter
+/// because a `final` local cannot be assigned from both a `try` and its `catch`
+/// — the analyzer cannot prove the catch only runs after the assignment failed.
+Future<(LibraryStore, String?)> _openLibrary() async {
+  try {
+    // The root comes from the platform, because only it knows where this app is
+    // allowed to write.
+    final String root = await const LibraryPlatform().documentsDirectory();
+    return (LibraryStore(Directory('$root/library'))..ensureDirectories(), null);
+  } on Object catch (error) {
+    // Failing to open storage is worth saying out loud, but not worth refusing to
+    // launch over: the app runs from a temporary directory instead, so the user
+    // sees what happened rather than watching it die before it draws.
+    return (
+      LibraryStore(Directory('${Directory.systemTemp.path}/decanter-library'))
+        ..ensureDirectories(),
+      'Could not open a place to save your characters, so nothing will '
+          'persist. $error',
+    );
+  }
 }
 
 /// Imports the bundled card the first time the app runs.

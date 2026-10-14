@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:decanter/main.dart';
 import 'package:decanter/src/chat_controller.dart';

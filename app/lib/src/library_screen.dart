@@ -258,19 +258,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _emptyState() {
-    return Center(
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28),
+        padding: EdgeInsets.symmetric(horizontal: 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
-              Icons.local_cafe_outlined,
-              size: 38,
-              color: Glass.textFaint,
-            ),
-            const SizedBox(height: 14),
-            const Text(
+            Icon(Icons.local_cafe_outlined, size: 38, color: Glass.textFaint),
+            SizedBox(height: 14),
+            Text(
               'The decanter is empty',
               style: TextStyle(
                 color: Glass.textPrimary,
@@ -278,12 +274,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'Import a character card to begin. A PNG card with the character '
               'embedded and a .json export both work — the file picker is below.',
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 color: Glass.textFaint,
                 fontSize: 12,
                 height: 1.5,
