@@ -14,6 +14,10 @@ class ChatRichContent extends StatelessWidget {
   final String text;
   final bool isUser;
 
+  static final RegExp _htmlCommentPattern = RegExp(
+    r'<!--[\s\S]*?-->',
+  );
+
   static final RegExp _imagePattern = RegExp(
     r'!\[(.*?)\]\((.*?)\)|<(?:img|image)\b([^>]*?)(?:\/?>|>)(?:\s*<\/(?:img|image)>)?',
     caseSensitive: false,
@@ -65,12 +69,13 @@ class ChatRichContent extends StatelessWidget {
   }
 
   List<_ContentSegment> _parseSegments(String raw) {
+    final String sanitized = raw.replaceAll(_htmlCommentPattern, '');
     final List<_ContentSegment> segments = <_ContentSegment>[];
     int lastEnd = 0;
 
-    for (final Match match in _imagePattern.allMatches(raw)) {
+    for (final Match match in _imagePattern.allMatches(sanitized)) {
       if (match.start > lastEnd) {
-        final String textPart = raw.substring(lastEnd, match.start).trim();
+        final String textPart = sanitized.substring(lastEnd, match.start).trim();
         if (textPart.isNotEmpty) {
           segments.add(_TextSegment(textPart));
         }
@@ -107,8 +112,8 @@ class ChatRichContent extends StatelessWidget {
       lastEnd = match.end;
     }
 
-    if (lastEnd < raw.length) {
-      final String trailing = raw.substring(lastEnd).trim();
+    if (lastEnd < sanitized.length) {
+      final String trailing = sanitized.substring(lastEnd).trim();
       if (trailing.isNotEmpty) {
         segments.add(_TextSegment(trailing));
       }

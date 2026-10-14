@@ -49,7 +49,6 @@ class IoHttpTransport implements HttpTransport, FileDownloader {
       request.headers.set('Accept-Encoding', 'identity');
     }
 
-    request.encoding = utf8;
     if (body != null) {
       final List<int> bytes = utf8.encode(body);
       request.headers.contentLength = bytes.length;

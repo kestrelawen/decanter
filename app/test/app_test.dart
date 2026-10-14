@@ -1484,6 +1484,34 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('strips HTML comments from display', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ChatRichContent(
+              text:
+                  '<!--Note: invisible author steering note-->The humid afternoon air hangs heavy.',
+              isUser: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining('invisible author steering note'),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('The humid afternoon air hangs heavy.'),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets(
       'top bar persona switcher button opens persona modal and allows adding a new persona',
       (WidgetTester tester) async {
