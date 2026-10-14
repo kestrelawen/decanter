@@ -1,3 +1,4 @@
+import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 
 import 'glass.dart';
@@ -9,9 +10,19 @@ import 'update_service.dart';
 ///
 /// Returns the edited settings via `Navigator.pop`, or null if cancelled.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, required this.initial});
+  const SettingsScreen({
+    super.key,
+    required this.initial,
+    this.transportFactory,
+  });
 
   final AppSettings initial;
+
+  /// How to reach the endpoint when fetching the model list.
+  ///
+  /// Injectable so that button can be tested without a network, the same seam
+  /// the chat controller uses for its backend.
+  final HttpTransport Function()? transportFactory;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -40,6 +51,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   );
 
   bool _revealKey = false;
+  bool _fetchingModels = false;
+  String? _modelError;
 
   @override
   void dispose() {
@@ -68,6 +81,154 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  Widget _fetchModelsButton() {
+    return GestureDetector(
+      onTap: _fetchingModels ? null : _fetchModels,
+      child: GlassPill(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        tintStrength: _fetchingModels ? 0.9 : 1.6,
+        child: _fetchingModels
+            ? const SizedBox(
+                height: 12,
+                width: 12,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text(
+                'FETCH',
+                style: TextStyle(
+                  color: Glass.textPrimary,
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+      ),
+    );
+  }
+
+  /// Asks the endpoint which models it serves, and offers them.
+  ///
+  /// Worth the round trip: the model name is the field people get wrong, and
+  /// every OpenAI-compatible server can answer this one.
+  Future<void> _fetchModels() async {
+    if (_fetchingModels) return;
+
+    final AppSettings draft = _collect();
+    if (draft.baseUrl.trim().isEmpty) {
+      setState(() => _modelError = 'Set a base URL first.');
+      return;
+    }
+
+    setState(() {
+      _fetchingModels = true;
+      _modelError = null;
+    });
+
+    final OpenAiCompatibleBackend backend = OpenAiCompatibleBackend(
+      baseUrl: draft.baseUrl,
+      apiKey: draft.apiKey,
+      transport: widget.transportFactory?.call() ?? IoHttpTransport(),
+    );
+
+    var failure = '';
+    var models = const <String>[];
+    try {
+      models = await backend.listModels();
+    } on BackendException catch (error) {
+      failure = error.friendlyMessage;
+    } on Object catch (error) {
+      failure = 'Could not reach that endpoint: $error';
+    } finally {
+      await backend.close();
+    }
+
+    if (!mounted) return;
+    setState(() => _fetchingModels = false);
+
+    if (failure.isNotEmpty) {
+      setState(() => _modelError = failure);
+      return;
+    }
+
+    if (models.isEmpty) {
+      // Not every server implements /models, and that is no reason to make the
+      // field look broken.
+      setState(
+        () => _modelError =
+            'That endpoint listed no models. Some servers do not implement '
+            '/models — type the name in instead.',
+      );
+      return;
+    }
+
+    final String? chosen = await _pickModel(models);
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _model.text = chosen;
+      _draft = _draft.copyWith(model: chosen);
+      _modelError = null;
+    });
+  }
+
+  /// Offers the fetched models and returns the chosen one, or null if dismissed.
+  Future<String?> _pickModel(List<String> models) {
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color.fromRGBO(24, 17, 14, 0.98),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 6),
+              child: Row(
+                children: <Widget>[
+                  const Text(
+                    'MODELS',
+                    style: TextStyle(
+                      color: Glass.textSecondary,
+                      fontSize: 10.5,
+                      letterSpacing: 1.4,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${models.length}',
+                    style: const TextStyle(
+                      color: Glass.textFaint,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: models.length,
+                itemBuilder: (BuildContext context, int index) => ListTile(
+                  dense: true,
+                  title: Text(
+                    models[index],
+                    style: const TextStyle(
+                      color: Glass.textPrimary,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop(models[index]),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openUpdates() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -92,7 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       backgroundColor: const Color.fromRGBO(12, 9, 8, 1),
       body: LiquidBackground(
-        asset: 'assets/background.png',
+        image: const AssetImage('assets/background.png'),
         child: SafeArea(
           child: Column(
             children: <Widget>[
@@ -159,7 +320,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           label: 'Model',
                           controller: _model,
                           hint: 'gpt-4o-mini',
+                          trailing: _fetchModelsButton(),
                         ),
+                        if (_modelError != null) ...<Widget>[
+                          const SizedBox(height: 6),
+                          Text(
+                            _modelError!,
+                            style: const TextStyle(
+                              color: Glass.textFaint,
+                              fontSize: 11.5,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         const Text(
                           'Any OpenAI-compatible /chat/completions endpoint '

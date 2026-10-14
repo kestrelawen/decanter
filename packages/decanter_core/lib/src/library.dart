@@ -208,6 +208,29 @@ class LibraryStore {
     return null;
   }
 
+  /// The card's own picture, when it was imported from one.
+  ///
+  /// A PNG card embeds the card inside an image chunk, so the source file *is*
+  /// the portrait. A JSON card has no picture at all, and that is a normal
+  /// outcome rather than an error — the library falls back to initials.
+  File? imageFile(String id) {
+    final File? source = sourceFile(id);
+    if (source == null) return null;
+    final String path = source.path.toLowerCase();
+    const List<String> imageExtensions = <String>[
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+    ];
+    for (final String extension in imageExtensions) {
+      if (path.endsWith(extension)) return source;
+    }
+    return null;
+  }
+
   /// Stores a card from raw bytes and returns its new library entry.
   ///
   /// Throws [CardFormatException] when the bytes are not a character card, so

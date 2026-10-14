@@ -392,4 +392,174 @@ void main() {
       expect(transport.closed, isTrue);
     });
   });
+
+  group('a base URL with no scheme', () {
+    // The reported failure: sending a message threw
+    // "Invalid argument(s): No host specified in URI" within milliseconds.
+    // Uri.parse reads "api.deepseek.com/v1" as a relative reference with no
+    // host, and HttpClient refuses it before any request leaves the device.
+
+    test('a bare host gains a scheme', () {
+      expect(
+        OpenAiCompatibleBackend.normalizeBaseUrl('api.deepseek.com/v1'),
+        'https://api.deepseek.com/v1',
+      );
+      expect(
+        OpenAiCompatibleBackend.normalizeBaseUrl('api.openai.com'),
+        'https://api.openai.com',
+      );
+    });
+
+    test('a local address is assumed to be http, not https', () {
+      for (final String host in <String>[
+        'localhost:11434/v1',
+        '127.0.0.1:1234/v1',
+        '10.0.2.2:11434/v1',
+        '192.168.1.50:8080/v1',
+        '172.16.0.9:8000/v1',
+        'ollama.local/v1',
+      ]) {
+        expect(
+          OpenAiCompatibleBackend.normalizeBaseUrl(host),
+          'http://$host',
+          reason: '$host should not be forced onto https',
+        );
+      }
+    });
+
+    test('a public host is not mistaken for a local one', () {
+      for (final String host in <String>[
+        'api.deepseek.com',
+        '10.example.com',
+        '172.15.0.1',
+        '172.32.0.1',
+      ]) {
+        expect(
+          OpenAiCompatibleBackend.normalizeBaseUrl(host),
+          'https://$host',
+          reason: '$host should default to https',
+        );
+      }
+    });
+
+    test('looksLikeLocalHost classifies the boundary cases', () {
+      expect(OpenAiCompatibleBackend.looksLikeLocalHost('172.16.0.1'), isTrue);
+      expect(
+          OpenAiCompatibleBackend.looksLikeLocalHost('172.31.255.255'), isTrue);
+      expect(OpenAiCompatibleBackend.looksLikeLocalHost('172.15.0.1'), isFalse);
+      expect(OpenAiCompatibleBackend.looksLikeLocalHost('172.32.0.1'), isFalse);
+      expect(
+          OpenAiCompatibleBackend.looksLikeLocalHost('192.169.1.1'), isFalse);
+      expect(OpenAiCompatibleBackend.looksLikeLocalHost(''), isFalse);
+    });
+
+    test('the repaired URL yields a usable endpoint', () {
+      final OpenAiCompatibleBackend backend = OpenAiCompatibleBackend(
+        baseUrl: 'api.deepseek.com/v1',
+        apiKey: 'sk-test',
+        transport: FakeTransport(),
+      );
+      expect(backend.endpoint.host, 'api.deepseek.com');
+      expect(backend.endpoint.scheme, 'https');
+      expect(backend.endpoint.path, '/v1/chat/completions');
+    });
+
+    test('a URL that still has no host fails with an explanation', () {
+      // Nothing left to normalise. The point is that the user reads a
+      // configuration problem rather than a raw ArgumentError.
+      final OpenAiCompatibleBackend backend = OpenAiCompatibleBackend(
+        baseUrl: 'https://',
+        apiKey: 'sk-test',
+        transport: FakeTransport(),
+      );
+      expect(
+        () => backend.endpoint,
+        throwsA(
+          predicate(
+            (Object e) =>
+                e is BackendException &&
+                e.message.contains('no host') &&
+                e.message.contains('https://api.openai.com/v1'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('listing models', () {
+    test('reads the documented shape', () {
+      expect(
+        OpenAiCompatibleBackend.parseModelIds(
+          '{"object":"list","data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}',
+        ),
+        <String>['gpt-4o', 'gpt-4o-mini'],
+      );
+    });
+
+    test('sorts, and drops duplicates and blanks', () {
+      expect(
+        OpenAiCompatibleBackend.parseModelIds(
+          '{"data":[{"id":"zeta"},{"id":"alpha"},{"id":"zeta"},{"id":"  "}]}',
+        ),
+        <String>['alpha', 'zeta'],
+      );
+    });
+
+    test('accepts bare strings, which some proxies return', () {
+      expect(
+        OpenAiCompatibleBackend.parseModelIds('{"data":["b","a"]}'),
+        <String>['a', 'b'],
+      );
+    });
+
+    test('anything unreadable is an empty list, not a throw', () {
+      // The list is a convenience; failing to parse it must not look like a
+      // broken endpoint.
+      expect(
+          OpenAiCompatibleBackend.parseModelIds('<html>nope</html>'), isEmpty);
+      expect(OpenAiCompatibleBackend.parseModelIds('{"data":{}}'), isEmpty);
+      expect(OpenAiCompatibleBackend.parseModelIds('[]'), isEmpty);
+      expect(
+          OpenAiCompatibleBackend.parseModelIds('{"data":[1,2,3]}'), isEmpty);
+      expect(OpenAiCompatibleBackend.parseModelIds(''), isEmpty);
+    });
+
+    test('asks /models with the key attached', () async {
+      final transport = FakeTransport(
+        lines: <String>['{"data":[{"id":"deepseek-chat"}]}'],
+      );
+      final List<String> models = await backendWith(transport).listModels();
+
+      expect(models, <String>['deepseek-chat']);
+      expect(transport.lastUrl!.path, '/v1/models');
+      expect(transport.lastUrl!.host, 'api.example.com');
+      expect(transport.lastHeaders!['Authorization'], 'Bearer sk-test');
+    });
+
+    test('a rejected key is reported, not swallowed', () async {
+      final transport = FakeTransport(
+        statusCode: 401,
+        lines: <String>['{"error":{"message":"Invalid API key"}}'],
+      );
+      await expectLater(
+        backendWith(transport).listModels(),
+        throwsA(
+          predicate(
+            (Object e) =>
+                e is BackendException &&
+                e.statusCode == 401 &&
+                e.message.contains('Invalid API key'),
+          ),
+        ),
+      );
+    });
+
+    test('a server with no /models is reported too', () async {
+      final transport = FakeTransport(statusCode: 404, lines: <String>['{}']);
+      await expectLater(
+        backendWith(transport).listModels(),
+        throwsA(isA<BackendException>()),
+      );
+    });
+  });
 }

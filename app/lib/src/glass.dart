@@ -180,10 +180,23 @@ class GlassPill extends StatelessWidget {
 /// against. Motion is what separates "translucent" from "actually glass" —
 /// a static blur reads as a flat translucent rectangle.
 class LiquidBackground extends StatefulWidget {
-  const LiquidBackground({super.key, required this.asset, required this.child});
+  const LiquidBackground({
+    super.key,
+    required this.image,
+    required this.child,
+    this.scrim = 1.0,
+  });
 
-  final String asset;
+  /// Any image: a bundled asset, or the card's own picture off disk.
+  final ImageProvider image;
+
   final Widget child;
+
+  /// Scales the darkening gradient.
+  ///
+  /// A character portrait is far more detailed than the generated backdrop, so
+  /// text sitting on one needs a heavier scrim to stay readable.
+  final double scrim;
 
   @override
   State<LiquidBackground> createState() => _LiquidBackgroundState();
@@ -225,7 +238,7 @@ class _LiquidBackgroundState extends State<LiquidBackground>
               ),
             );
           },
-          child: Image.asset(widget.asset, fit: BoxFit.cover),
+          child: Image(image: widget.image, fit: BoxFit.cover),
         ),
 
         // Scrim: without it, text over the bright lower half is unreadable.
@@ -235,9 +248,9 @@ class _LiquidBackgroundState extends State<LiquidBackground>
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: <Color>[
-                Glass.shade(0.46),
-                Glass.shade(0.14),
-                Glass.shade(0.52),
+                Glass.shade(0.46 * widget.scrim),
+                Glass.shade(0.14 * widget.scrim),
+                Glass.shade(0.52 * widget.scrim),
               ],
               stops: const <double>[0.0, 0.45, 1.0],
             ),

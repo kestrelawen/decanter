@@ -201,6 +201,16 @@ class OpenAiCompatibleBackend implements ChatBackend {
   static String normalizeBaseUrl(String raw) {
     var url = raw.trim();
     if (url.isEmpty) return '';
+
+    // A bare host is what people actually paste. Without a scheme, Uri.parse
+    // reads "localhost:11434" as scheme "localhost" with no host, and
+    // HttpClient then throws `Invalid argument(s): No host specified in URI`
+    // before anything leaves the device — an instant, baffling failure on the
+    // first message that looks nothing like a configuration mistake.
+    if (!url.contains('://')) {
+      url = '${looksLikeLocalHost(url) ? 'http' : 'https'}://$url';
+    }
+
     while (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);
     }
@@ -212,7 +222,63 @@ class OpenAiCompatibleBackend implements ChatBackend {
     return url;
   }
 
-  Uri get endpoint => Uri.parse('$baseUrl/chat/completions');
+  /// True for an address that is almost certainly a machine on the local
+  /// network, where https is the wrong guess.
+  ///
+  /// Requires a genuine private IPv4 address rather than a prefix match: a
+  /// domain can legitimately begin with "10." and forcing it onto http would
+  /// break a perfectly good endpoint.
+  static bool looksLikeLocalHost(String url) {
+    final String host = url.split('/').first.split(':').first.toLowerCase();
+    if (host.isEmpty) return false;
+    if (host == 'localhost' || host.endsWith('.local')) return true;
+    if (!_isIpv4(host)) return false;
+
+    final List<int> octets = <int>[
+      for (final String part in host.split('.')) int.parse(part),
+    ];
+    if (octets[0] == 10) return true; // 10.0.0.0/8
+    if (octets[0] == 127) return true; // loopback
+    if (octets[0] == 0) return true; // "0.0.0.0"
+    if (octets[0] == 192 && octets[1] == 168) return true; // 192.168.0.0/16
+    if (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) {
+      return true; // 172.16.0.0/12
+    }
+    return false;
+  }
+
+  static bool _isIpv4(String host) {
+    final List<String> parts = host.split('.');
+    if (parts.length != 4) return false;
+    for (final String part in parts) {
+      if (part.isEmpty || part.length > 3) return false;
+      final int? value = int.tryParse(part);
+      if (value == null || value < 0 || value > 255) return false;
+    }
+    return true;
+  }
+
+  /// The chat endpoint.
+  Uri get endpoint => _endpointFor('/chat/completions');
+
+  /// The models endpoint, behind the "fetch models" button.
+  Uri get modelsEndpoint => _endpointFor('/models');
+
+  /// Builds an endpoint, refusing a URL that has no host.
+  ///
+  /// Raising a [BackendException] here rather than letting `HttpClient` throw a
+  /// raw `ArgumentError` is the difference between the user reading "the base
+  /// URL has no host" and reading "Invalid argument(s)".
+  Uri _endpointFor(String path) {
+    final Uri uri = Uri.parse('$baseUrl$path');
+    if (uri.host.isEmpty) {
+      throw BackendException(
+        message: 'The base URL has no host ("$baseUrl"). Include the scheme, '
+            'for example https://api.openai.com/v1.',
+      );
+    }
+    return uri;
+  }
 
   @override
   Stream<ChatChunk> stream(ChatRequest request) async* {
@@ -232,25 +298,7 @@ class OpenAiCompatibleBackend implements ChatBackend {
       // The error body is where providers explain themselves; surface it in the
       // log but summarise it for the user.
       final String body = await StreamedResponse.collect(response.lines);
-      String detail = body.trim();
-      try {
-        final Object? decoded = jsonDecode(body);
-        if (decoded is Map) {
-          final Object? error = decoded['error'];
-          if (error is Map && error['message'] is String) {
-            detail = error['message'] as String;
-          } else if (decoded['message'] is String) {
-            detail = decoded['message'] as String;
-          }
-        }
-      } on FormatException {
-        // Not JSON. Keep the raw text.
-      }
-      throw BackendException(
-        message: detail.isEmpty ? 'Request failed' : detail,
-        statusCode: response.statusCode,
-        body: body,
-      );
+      throw _failureFor(response.statusCode, body);
     }
 
     if (!request.stream) {
@@ -300,6 +348,78 @@ class OpenAiCompatibleBackend implements ChatBackend {
     // Some providers close the socket without sending [DONE]. Emitting the
     // terminal chunk anyway keeps callers from hanging on a finished stream.
     if (!sawTerminator) yield const ChatChunk(done: true);
+  }
+
+  /// Asks the provider which models it serves.
+  ///
+  /// Every OpenAI-compatible server answers `GET /models`, but the payload
+  /// varies. `data[].id` is the documented shape and what everything implements,
+  /// so anything else reads as "no models" rather than an error — the list is a
+  /// convenience, and failing to fetch it must not look like a broken endpoint.
+  Future<List<String>> listModels() async {
+    final StreamedResponse response = await transport.send(
+      method: 'GET',
+      url: modelsEndpoint,
+      headers: <String, String>{
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+        ..._extraHeaders,
+      },
+    );
+
+    final String body = await StreamedResponse.collect(response.lines);
+    if (response.statusCode != 200) {
+      throw _failureFor(response.statusCode, body);
+    }
+    return parseModelIds(body);
+  }
+
+  /// Pulls model ids out of a `/models` response, sorted and de-duplicated.
+  static List<String> parseModelIds(String body) {
+    try {
+      final Object? decoded = jsonDecode(body);
+      if (decoded is! Map) return const <String>[];
+      final Object? data = decoded['data'];
+      if (data is! List) return const <String>[];
+
+      final Set<String> ids = <String>{};
+      for (final Object? entry in data) {
+        if (entry is Map && entry['id'] is String) {
+          final String id = (entry['id'] as String).trim();
+          if (id.isNotEmpty) ids.add(id);
+        } else if (entry is String && entry.trim().isNotEmpty) {
+          // Some proxies return bare strings rather than objects.
+          ids.add(entry.trim());
+        }
+      }
+      final List<String> sorted = ids.toList()..sort();
+      return sorted;
+    } on FormatException {
+      return const <String>[];
+    }
+  }
+
+  /// Builds the exception for a non-200, preferring the provider's own wording.
+  BackendException _failureFor(int statusCode, String body) {
+    String detail = body.trim();
+    try {
+      final Object? decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final Object? error = decoded['error'];
+        if (error is Map && error['message'] is String) {
+          detail = error['message'] as String;
+        } else if (decoded['message'] is String) {
+          detail = decoded['message'] as String;
+        }
+      }
+    } on FormatException {
+      // Not JSON. Keep the raw text.
+    }
+    return BackendException(
+      message: detail.isEmpty ? 'Request failed' : detail,
+      statusCode: statusCode,
+      body: body,
+    );
   }
 
   ChatChunk _parseWholeResponse(String body) {

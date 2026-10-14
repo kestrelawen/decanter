@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
 
@@ -151,12 +153,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // --- build --------------------------------------------------------------
 
+  /// The card's own picture, when the card has one.
+  ///
+  /// Looked up once per build rather than per reference, because finding it
+  /// means listing the card's directory.
+  File? get _cardArt {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) return null;
+    return store.imageFile(id);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final File? art = _cardArt;
+
     return Scaffold(
       backgroundColor: const Color.fromRGBO(12, 9, 8, 1),
       body: LiquidBackground(
-        asset: 'assets/background.png',
+        image: art == null
+            ? const AssetImage('assets/background.png')
+            : FileImage(art),
+        // A JSON card falls back to the generated backdrop; a character portrait
+        // is far more detailed, so text over it needs a heavier scrim.
+        scrim: art == null ? 1.0 : 1.35,
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),

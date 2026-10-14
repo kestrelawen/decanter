@@ -150,7 +150,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
     return Scaffold(
       backgroundColor: const Color.fromRGBO(12, 9, 8, 1),
       body: LiquidBackground(
-        asset: 'assets/background.png',
+        image: const AssetImage('assets/background.png'),
         child: SafeArea(
           child: Column(
             children: <Widget>[

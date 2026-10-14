@@ -470,6 +470,51 @@ void main() {
     });
   });
 
+  group('card images', () {
+    test('a PNG card exposes its picture', () {
+      final File file = File(fixtureCard);
+      if (!file.existsSync()) {
+        markTestSkipped('$fixtureCard not fetched; run tool/fetch_fixtures.sh');
+        return;
+      }
+
+      final LibraryEntry entry = store.importCard(
+        bytes: file.readAsBytesSync(),
+        fileName: 'default_Seraphina.png',
+      );
+
+      final File? image = store.imageFile(entry.id);
+      expect(image, isNotNull);
+      expect(image!.path, endsWith('source.png'));
+      expect(image.existsSync(), isTrue);
+      // Byte-identical to what was imported, so the library shows the picture
+      // the user actually handed over rather than a re-render of it.
+      expect(image.lengthSync(), file.lengthSync());
+    });
+
+    test('a JSON card has no picture, and that is not an error', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'mira.json',
+      );
+      expect(store.imageFile(entry.id), isNull);
+    });
+
+    test('asking for the picture of an unknown card gives null', () {
+      expect(store.imageFile('nobody'), isNull);
+    });
+
+    test('the picture and the parsed card live side by side', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'mira.json',
+      );
+      // Both survive: the picture is for showing, the JSON is for prompting.
+      expect(store.loadCard(entry.id).name, 'Mira Vance');
+      expect(store.sourceFile(entry.id)!.existsSync(), isTrue);
+    });
+  });
+
   group('entry serialisation', () {
     test('round-trips through JSON', () {
       final LibraryEntry entry = LibraryEntry(

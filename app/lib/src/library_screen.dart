@@ -176,7 +176,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       backgroundColor: const Color.fromRGBO(12, 9, 8, 1),
       body: LiquidBackground(
-        asset: 'assets/background.png',
+        image: const AssetImage('assets/background.png'),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
@@ -307,7 +307,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              _monogram(entry),
+              _avatar(entry),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -372,6 +372,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The character's own picture when the card came with one, initials when it
+  /// did not.
+  Widget _avatar(LibraryEntry entry) {
+    final File? picture = widget.store.imageFile(entry.id);
+    if (picture == null) return _monogram(entry);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Image.file(
+        picture,
+        width: 56,
+        height: 56,
+        fit: BoxFit.cover,
+        // Card art is often over a thousand pixels across. Decoding it at full
+        // size for a 56px thumbnail would allocate megabytes per row.
+        cacheWidth: 168,
+        // A file that has gone missing falls back rather than showing a broken
+        // image icon in the middle of the shelf.
+        errorBuilder:
+            (BuildContext context, Object error, StackTrace? stackTrace) =>
+                _monogram(entry),
       ),
     );
   }

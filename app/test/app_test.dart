@@ -9,6 +9,7 @@ import 'package:decanter/src/home_screen.dart';
 import 'package:decanter/src/library_platform.dart';
 import 'package:decanter/src/library_screen.dart';
 import 'package:decanter/src/settings.dart';
+import 'package:decanter/src/settings_screen.dart';
 import 'package:decanter/src/update_service.dart';
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
@@ -31,6 +32,41 @@ Uint8List cardJsonBytes({
     },
   }),
 );
+
+/// An HTTP transport that replays one canned response.
+///
+/// The field is named `responseBody` rather than `body` on purpose: `send` has a
+/// `body` parameter, and having shadowed it once already, this is the version
+/// that does not need `this.` to be read correctly.
+class StubTransport implements HttpTransport {
+  StubTransport({this.statusCode = 200, required this.responseBody});
+
+  final int statusCode;
+  final String responseBody;
+
+  Uri? lastUrl;
+  Map<String, String>? lastHeaders;
+  int calls = 0;
+
+  @override
+  Future<StreamedResponse> send({
+    required String method,
+    required Uri url,
+    Map<String, String> headers = const <String, String>{},
+    String? body,
+  }) async {
+    calls++;
+    lastUrl = url;
+    lastHeaders = headers;
+    return StreamedResponse(
+      statusCode: statusCode,
+      lines: Stream.fromIterable(responseBody.split('\n')),
+    );
+  }
+
+  @override
+  void close() {}
+}
 
 /// The bundled card, parsed straight off disk.
 ///
@@ -848,6 +884,250 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Mira Vance'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('card pictures', () {
+    late Directory root;
+    late LibraryStore library;
+    late Uint8List picture;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('decanter-art');
+      library = LibraryStore(root);
+      // A real, decodable PNG, standing in for the art sealed inside a PNG card.
+      picture = File('assets/background.png').readAsBytesSync();
+    });
+
+    tearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+
+    /// A stored card with a picture beside it — the end state a PNG import
+    /// leaves behind, without needing a PNG that is also a card.
+    LibraryEntry cardWithPicture({String name = 'Light Yagami'}) {
+      final LibraryEntry entry = library.importCard(
+        bytes: cardJsonBytes(name: name),
+        fileName: 'hero.json',
+      );
+      final Directory directory = Directory(
+        '${library.cardsDirectory.path}/${entry.id}',
+      );
+      File('${directory.path}/source.json').deleteSync();
+      File('${directory.path}/source.png').writeAsBytesSync(picture);
+      return entry;
+    }
+
+    testWidgets('the library shows the picture instead of initials', (
+      WidgetTester tester,
+    ) async {
+      // The reported bug: a card imported with a picture still showed a letter.
+      cardWithPicture();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LibraryScreen(
+            store: library,
+            settings: configured,
+            onOpenSettings: () async {},
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final Iterable<Image> thumbnails = tester
+          .widgetList<Image>(find.byType(Image))
+          .where((Image image) => image.width == 56);
+      expect(thumbnails, isNotEmpty, reason: 'no picture rendered in the row');
+      expect(find.text('LY'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a card with no picture still falls back to initials', (
+      WidgetTester tester,
+    ) async {
+      library.importCard(
+        bytes: cardJsonBytes(name: 'Mira Vance'),
+        fileName: 'plain.json',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LibraryScreen(
+            store: library,
+            settings: configured,
+            onOpenSettings: () async {},
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('MV'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the chat is set against the card art', (
+      WidgetTester tester,
+    ) async {
+      final LibraryEntry entry = cardWithPicture();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            card: library.loadCard(entry.id),
+            settings: configured,
+            onOpenSettings: () async {},
+            store: library,
+            entryId: entry.id,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final LiquidBackground background = tester.widget<LiquidBackground>(
+        find.byType(LiquidBackground),
+      );
+      expect(background.image, isA<FileImage>());
+      // Character art is busier than the generated backdrop, so it gets a
+      // heavier scrim to keep the conversation readable over it.
+      expect(background.scrim, greaterThan(1.0));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a card with no art keeps the generated backdrop', (
+      WidgetTester tester,
+    ) async {
+      final LibraryEntry entry = library.importCard(
+        bytes: cardJsonBytes(),
+        fileName: 'plain.json',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            card: library.loadCard(entry.id),
+            settings: configured,
+            onOpenSettings: () async {},
+            store: library,
+            entryId: entry.id,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final LiquidBackground background = tester.widget<LiquidBackground>(
+        find.byType(LiquidBackground),
+      );
+      expect(background.image, isA<AssetImage>());
+      expect(background.scrim, 1.0);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('fetching models', () {
+    Future<void> pumpSettings(
+      WidgetTester tester,
+      StubTransport transport,
+    ) async {
+      // A tall viewport so the whole settings list is laid out. On the default
+      // 800x600 test surface the Model row — and therefore the FETCH button —
+      // sits below the fold and is never built, so it cannot be tapped.
+      tester.view.physicalSize = const Size(1200, 4800);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsScreen(
+            initial: configured.copyWith(
+              baseUrl: 'https://api.example.com/v1',
+            ),
+            transportFactory: () => transport,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    testWidgets('the fetch button lists what the endpoint serves', (
+      WidgetTester tester,
+    ) async {
+      final StubTransport transport = StubTransport(
+        responseBody: '{"data":[{"id":"alpha-model"},{"id":"beta-model"}]}',
+      );
+      await pumpSettings(tester, transport);
+
+      await tester.tap(find.text('FETCH'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(transport.lastUrl!.path, '/v1/models');
+      expect(transport.lastHeaders!['Authorization'], 'Bearer ${configured.apiKey}');
+      expect(find.text('alpha-model'), findsOneWidget);
+      expect(find.text('beta-model'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('choosing one fills in the model field', (
+      WidgetTester tester,
+    ) async {
+      final StubTransport transport = StubTransport(
+        responseBody: '{"data":[{"id":"alpha-model"},{"id":"beta-model"}]}',
+      );
+      await pumpSettings(tester, transport);
+
+      await tester.tap(find.text('FETCH'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.text('beta-model'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // The sheet is gone, so the only 'beta-model' left is the field's value.
+      expect(find.text('beta-model'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a rejected key is explained rather than swallowed', (
+      WidgetTester tester,
+    ) async {
+      final StubTransport transport = StubTransport(
+        statusCode: 401,
+        responseBody: '{"error":{"message":"Invalid API key"}}',
+      );
+      await pumpSettings(tester, transport);
+
+      await tester.tap(find.text('FETCH'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.textContaining('API key was rejected'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('an endpoint with no /models says so, and suggests typing', (
+      WidgetTester tester,
+    ) async {
+      final StubTransport transport = StubTransport(
+        responseBody: '{"nonsense":true}',
+      );
+      await pumpSettings(tester, transport);
+
+      await tester.tap(find.text('FETCH'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.textContaining('type the name in instead'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
