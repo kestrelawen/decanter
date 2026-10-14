@@ -185,7 +185,8 @@ void main() {
       );
       final dsChunks =
           await backendWith(deepseekTransport).stream(requestWith()).toList();
-      final dsUsage = dsChunks.firstWhere((ChatChunk c) => c.usage != null).usage;
+      final dsUsage =
+          dsChunks.firstWhere((ChatChunk c) => c.usage != null).usage;
       expect(dsUsage?.cachedTokens, 85);
 
       final anthropicTransport = FakeTransport(
@@ -196,7 +197,8 @@ void main() {
       );
       final antChunks =
           await backendWith(anthropicTransport).stream(requestWith()).toList();
-      final antUsage = antChunks.firstWhere((ChatChunk c) => c.usage != null).usage;
+      final antUsage =
+          antChunks.firstWhere((ChatChunk c) => c.usage != null).usage;
       expect(antUsage?.cachedTokens, 150);
     });
 

@@ -345,7 +345,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _header() {
     final int greetingCount = widget.card.greetings.length;
-    final int active = _chat.scan?.activated.length ?? 0;
 
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
