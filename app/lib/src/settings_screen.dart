@@ -133,8 +133,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     var failure = '';
     var models = const <String>[];
+    var contextLengths = const <String, int>{};
     try {
-      models = await backend.listModels();
+      final catalog = await backend.fetchCatalog();
+      models = catalog.models;
+      contextLengths = catalog.contextLengths;
     } on BackendException catch (error) {
       failure = error.friendlyMessage;
     } on Object catch (error) {
@@ -162,17 +165,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final String? chosen = await _pickModel(models);
+    final String? chosen =
+        await _pickModel(models, contextLengths: contextLengths);
     if (chosen == null || !mounted) return;
+    final int? detectedBudget = contextLengths[chosen];
     setState(() {
       _model.text = chosen;
-      _draft = _draft.copyWith(model: chosen);
+      _draft = _draft.copyWith(
+        model: chosen,
+        contextBudget: (detectedBudget != null && detectedBudget > 0)
+            ? detectedBudget
+            : _draft.contextBudget,
+      );
       _modelError = null;
     });
   }
 
   /// Offers the fetched models and returns the chosen one, or null if dismissed.
-  Future<String?> _pickModel(List<String> models) {
+  Future<String?> _pickModel(
+    List<String> models, {
+    Map<String, int> contextLengths = const <String, int>{},
+  }) {
     return showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -295,19 +308,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   physics: const ClampingScrollPhysics(),
                                   itemCount: filtered.length,
                                   itemBuilder:
-                                      (BuildContext context, int index) =>
-                                          ListTile(
-                                    dense: true,
-                                    title: Text(
-                                      filtered[index],
-                                      style: const TextStyle(
-                                        color: Glass.textPrimary,
-                                        fontSize: 13.5,
+                                      (BuildContext context, int index) {
+                                    final String modelId = filtered[index];
+                                    final int? ctx = contextLengths[modelId];
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(
+                                        modelId,
+                                        style: const TextStyle(
+                                          color: Glass.textPrimary,
+                                          fontSize: 13.5,
+                                        ),
                                       ),
-                                    ),
-                                    onTap: () => Navigator.of(sheetContext)
-                                        .pop(filtered[index]),
-                                  ),
+                                      trailing: ctx != null && ctx > 0
+                                          ? Text(
+                                              '${ctx ~/ 1024}k context',
+                                              style: const TextStyle(
+                                                color: Glass.textFaint,
+                                                fontSize: 11,
+                                              ),
+                                            )
+                                          : null,
+                                      onTap: () => Navigator.of(sheetContext)
+                                          .pop(modelId),
+                                    );
+                                  },
                                 ),
                               ),
                       ),
@@ -618,6 +643,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onChanged: (double v) => setState(
                                 () => _draft = _draft.copyWith(temperature: v)),
                           ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Context Budget',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              _draft.contextBudget > 0
+                                  ? '${_draft.contextBudget ~/ 1024}k tokens'
+                                  : 'Unlimited',
+                              style: const TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 12.5,
+                                fontFeatures: <FontFeature>[
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Maximum context tokens sent to model. 0 retains full history without trimming.',
+                          style: TextStyle(
+                            color: Glass.textFaint,
+                            fontSize: 11,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: <int>[
+                            8192,
+                            16384,
+                            32768,
+                            65536,
+                            131072,
+                            0,
+                          ].map((int b) {
+                            final bool selected = _draft.contextBudget == b;
+                            final String label =
+                                b == 0 ? 'Unlimited' : '${b ~/ 1024}k';
+                            return GestureDetector(
+                              onTap: () => setState(() =>
+                                  _draft = _draft.copyWith(contextBudget: b)),
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                tintStrength: selected ? 1.6 : 0.8,
+                                child: Text(
+                                  label,
+                                  style: TextStyle(
+                                    color: selected
+                                        ? Glass.textPrimary
+                                        : Glass.textSecondary,
+                                    fontSize: 11,
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
                         ),
                       ],
                     ),

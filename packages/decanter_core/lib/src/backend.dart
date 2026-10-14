@@ -431,6 +431,29 @@ class OpenAiCompatibleBackend implements ChatBackend {
     return parseModelIds(body);
   }
 
+  /// Fetches model IDs and any metadata (e.g. context lengths) in a single request.
+  Future<({List<String> models, Map<String, int> contextLengths})>
+      fetchCatalog() async {
+    final StreamedResponse response = await transport.send(
+      method: 'GET',
+      url: modelsEndpoint,
+      headers: <String, String>{
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+        ..._extraHeaders,
+      },
+    );
+
+    final String body = await StreamedResponse.collect(response.lines);
+    if (response.statusCode != 200) {
+      throw _failureFor(response.statusCode, body);
+    }
+    return (
+      models: parseModelIds(body),
+      contextLengths: parseModelContextLengths(body),
+    );
+  }
+
   /// Pulls model ids out of a `/models` response, sorted and de-duplicated.
   static List<String> parseModelIds(String body) {
     try {
@@ -453,6 +476,32 @@ class OpenAiCompatibleBackend implements ChatBackend {
       return sorted;
     } on FormatException {
       return const <String>[];
+    }
+  }
+
+  /// Extracts a map of model id to context length (in tokens), when reported
+  /// by endpoints such as OpenRouter or local servers.
+  static Map<String, int> parseModelContextLengths(String body) {
+    try {
+      final Object? decoded = jsonDecode(body);
+      if (decoded is! Map) return const <String, int>{};
+      final Object? data = decoded['data'];
+      if (data is! List) return const <String, int>{};
+
+      final Map<String, int> result = <String, int>{};
+      for (final Object? entry in data) {
+        if (entry is Map && entry['id'] is String) {
+          final String id = (entry['id'] as String).trim();
+          final Object? cl =
+              entry['context_length'] ?? entry['max_context_length'];
+          if (cl is num && id.isNotEmpty && cl > 0) {
+            result[id] = cl.toInt();
+          }
+        }
+      }
+      return result;
+    } on FormatException {
+      return const <String, int>{};
     }
   }
 
@@ -555,17 +604,35 @@ class OpenAiCompatibleBackend implements ChatBackend {
   static ChatUsage? _usageFrom(Map<String, dynamic> json) {
     final Object? raw = json['usage'];
     if (raw is! Map) return null;
-    final int? pt =
-        raw['prompt_tokens'] is int ? raw['prompt_tokens'] as int : null;
-    final int? ct = raw['completion_tokens'] is int
-        ? raw['completion_tokens'] as int
+    final int? pt = raw['prompt_tokens'] is num
+        ? (raw['prompt_tokens'] as num).toInt()
         : null;
-    final int? tt =
-        raw['total_tokens'] is int ? raw['total_tokens'] as int : null;
+    final int? ct = raw['completion_tokens'] is num
+        ? (raw['completion_tokens'] as num).toInt()
+        : null;
+    final int? tt = raw['total_tokens'] is num
+        ? (raw['total_tokens'] as num).toInt()
+        : null;
+
+    int? cached;
     final Object? details = raw['prompt_tokens_details'];
-    final int? cached = details is Map && details['cached_tokens'] is int
-        ? details['cached_tokens'] as int
-        : null;
+    if (details is Map) {
+      if (details['cached_tokens'] is num) {
+        cached = (details['cached_tokens'] as num).toInt();
+      } else if (details['cache_read_input_tokens'] is num) {
+        cached = (details['cache_read_input_tokens'] as num).toInt();
+      }
+    }
+    if (cached == null) {
+      if (raw['prompt_cache_hit_tokens'] is num) {
+        cached = (raw['prompt_cache_hit_tokens'] as num).toInt();
+      } else if (raw['cache_read_input_tokens'] is num) {
+        cached = (raw['cache_read_input_tokens'] as num).toInt();
+      } else if (raw['cached_tokens'] is num) {
+        cached = (raw['cached_tokens'] as num).toInt();
+      }
+    }
+
     return ChatUsage(
       promptTokens: pt,
       completionTokens: ct,

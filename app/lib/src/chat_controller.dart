@@ -482,6 +482,13 @@ class ChatController extends ChangeNotifier {
           _streamingText += chunk.delta;
           _lastTurnOutputTokens +=
               const HeuristicTokenizer().count(chunk.delta);
+          if (_turnStartTime != null) {
+            _lastTurnDuration = DateTime.now().difference(_turnStartTime!);
+            final double seconds = _lastTurnDuration!.inMilliseconds / 1000.0;
+            if (seconds >= 0.2 && _lastTurnOutputTokens > 0) {
+              _lastTokensPerSecond = _lastTurnOutputTokens / seconds;
+            }
+          }
           notifyListeners();
         }
         if (chunk.usage != null) {

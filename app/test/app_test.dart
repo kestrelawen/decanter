@@ -556,7 +556,10 @@ void main() {
     ) async {
       await pumpHome(tester);
 
-      await tester.tap(find.byIcon(Icons.auto_awesome_motion_outlined));
+      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Lorebook Inspector'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -1053,8 +1056,11 @@ void main() {
       await pumpChat(tester, entry.id);
       expect(find.textContaining('old turn'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.refresh_rounded));
-      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Restart Chat'));
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(library.hasChat(entry.id), isFalse);
       expect(find.textContaining('old turn'), findsNothing);
@@ -1077,8 +1083,11 @@ void main() {
         ]);
         await pumpChat(tester, entry.id);
 
-        expect(find.byIcon(Icons.forum_outlined), findsOneWidget);
-        await tester.tap(find.byIcon(Icons.forum_outlined));
+        await tester.tap(find.byIcon(Icons.more_vert_rounded));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('Saved Chats'), findsOneWidget);
+        await tester.tap(find.text('Saved Chats'));
         await tester.pump(const Duration(milliseconds: 200));
         await tester.pump(const Duration(milliseconds: 200));
 
@@ -1443,6 +1452,78 @@ void main() {
       expect(find.textContaining('smiles warmly'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('renders HTML img tags with src and alt attributes', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ChatRichContent(
+              text:
+                  'A kitten: <img src="https://tools.theworkshop.team/api/image/123" alt="Cute kitten" style="display:block;"> *purrs*',
+              isUser: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder imageFinder = find.byType(Image);
+      expect(imageFinder, findsOneWidget);
+      final Image img = tester.widget<Image>(imageFinder);
+      expect(
+        (img.image as NetworkImage).url,
+        'https://tools.theworkshop.team/api/image/123',
+      );
+
+      expect(find.textContaining('A kitten:'), findsOneWidget);
+      expect(find.textContaining('purrs'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets(
+      'top bar persona switcher button opens persona modal and allows adding a new persona',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: HomeScreen(
+              card: loadBundledCard(),
+              settings: configured,
+              onOpenSettings: () async {},
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Persona button in top bar
+        expect(find.byIcon(Icons.person_pin_rounded), findsOneWidget);
+        await tester.tap(find.byIcon(Icons.person_pin_rounded));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.text('SWITCH PERSONA'), findsOneWidget);
+        expect(find.text('NEW'), findsOneWidget);
+
+        await tester.tap(find.text('NEW'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(find.text('New Persona'), findsOneWidget);
+        await tester.enterText(find.byType(TextField).first, 'Arthur');
+        await tester.tap(find.text('Save'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.text('Arthur'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    test('default context budget is 32768 tokens (32k)', () {
+      expect(const AppSettings().contextBudget, 32768);
     });
   });
 }

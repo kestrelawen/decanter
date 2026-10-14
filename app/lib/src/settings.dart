@@ -112,7 +112,7 @@ class AppSettings {
     this.personas = const <PersonaProfile>[],
     this.activePersonaId = '',
     this.authorNote = '',
-    this.contextBudget = 4096,
+    this.contextBudget = 32768,
     this.updateRepo = 'kestrelawen/decanter',
     this.updateToken = '',
   });
@@ -296,7 +296,7 @@ class AppSettings {
       authorNote:
           json['authorNote'] is String ? json['authorNote'] as String : '',
       contextBudget:
-          json['contextBudget'] is int ? json['contextBudget'] as int : 4096,
+          json['contextBudget'] is int ? json['contextBudget'] as int : 32768,
       updateRepo: json['updateRepo'] is String
           ? json['updateRepo'] as String
           : 'kestrelawen/decanter',

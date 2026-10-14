@@ -176,6 +176,30 @@ void main() {
       expect(withUsage.usage?.cachedTokens, 8);
     });
 
+    test('extracts DeepSeek and Anthropic prompt cache tokens', () async {
+      final deepseekTransport = FakeTransport(
+        lines: <String>[
+          'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_cache_hit_tokens":85}}\n\n',
+          'data: [DONE]\n\n',
+        ],
+      );
+      final dsChunks =
+          await backendWith(deepseekTransport).stream(requestWith()).toList();
+      final dsUsage = dsChunks.firstWhere((ChatChunk c) => c.usage != null).usage;
+      expect(dsUsage?.cachedTokens, 85);
+
+      final anthropicTransport = FakeTransport(
+        lines: <String>[
+          'data: {"choices":[],"usage":{"prompt_tokens":200,"completion_tokens":40,"total_tokens":240,"cache_read_input_tokens":150}}\n\n',
+          'data: [DONE]\n\n',
+        ],
+      );
+      final antChunks =
+          await backendWith(anthropicTransport).stream(requestWith()).toList();
+      final antUsage = antChunks.firstWhere((ChatChunk c) => c.usage != null).usage;
+      expect(antUsage?.cachedTokens, 150);
+    });
+
     test('a role-only first chunk yields nothing but does not break', () async {
       final transport = FakeTransport(
         lines: <String>[
@@ -572,6 +596,18 @@ void main() {
       expect(
           OpenAiCompatibleBackend.parseModelIds('{"data":[1,2,3]}'), isEmpty);
       expect(OpenAiCompatibleBackend.parseModelIds(''), isEmpty);
+    });
+
+    test('parses model context lengths when reported by provider', () {
+      const String json = '{"data":['
+          '{"id":"model-a","context_length":32768},'
+          '{"id":"model-b","max_context_length":131072},'
+          '{"id":"model-c"}'
+          ']}';
+      final lengths = OpenAiCompatibleBackend.parseModelContextLengths(json);
+      expect(lengths['model-a'], 32768);
+      expect(lengths['model-b'], 131072);
+      expect(lengths.containsKey('model-c'), isFalse);
     });
 
     test('asks /models with the key attached', () async {

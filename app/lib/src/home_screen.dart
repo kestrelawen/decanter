@@ -348,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final int active = _chat.scan?.activated.length ?? 0;
 
     return GlassPanel(
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
       child: SheenSweep(
         child: Row(
           children: <Widget>[
@@ -360,10 +360,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icons.arrow_back_rounded,
                 onTap: () => Navigator.of(context).maybePop(),
               ),
-              const SizedBox(width: 9),
+              const SizedBox(width: 8),
             ],
-            _avatar(),
-            const SizedBox(width: 11),
             Expanded(
               child: GestureDetector(
                 // Tapping cycles alternate greetings — the only way to reach the
@@ -407,31 +405,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            GlassIconButton(
+              icon: Icons.person_pin_rounded,
+              tooltip: 'Switch Persona',
+              onTap: _openPersonaSwitchSheet,
+            ),
+            const SizedBox(width: 6),
             GlassIconButton(
               icon: Icons.speed_rounded,
               tooltip: 'Telemetry & Stats',
               onTap: _openSessionStatsSheet,
-            ),
-            const SizedBox(width: 6),
-            GlassIconButton(
-              icon: Icons.auto_awesome_motion_outlined,
-              tooltip: 'Lorebook',
-              badge: active > 0 ? '$active' : null,
-              onTap: _openLoreSheet,
-            ),
-            if (widget.store != null && widget.entryId != null) ...<Widget>[
-              const SizedBox(width: 6),
-              GlassIconButton(
-                icon: Icons.forum_outlined,
-                tooltip: 'Chats',
-                onTap: _openChatsSheet,
-              ),
-            ],
-            const SizedBox(width: 6),
-            GlassIconButton(
-              icon: Icons.refresh_rounded,
-              tooltip: 'New chat',
-              onTap: _startFresh,
             ),
             const SizedBox(width: 6),
             GlassIconButton(
@@ -440,37 +424,6 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: _openMoreMenuSheet,
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _avatar() {
-    final String initials = widget.card.name
-        .split(RegExp(r'\s+'))
-        .where((String w) => w.isNotEmpty)
-        .take(2)
-        .map((String w) => w.substring(0, 1).toUpperCase())
-        .join();
-
-    return GlassPanel(
-      radius: 999,
-      blur: 14,
-      padding: EdgeInsets.zero,
-      tintStrength: 1.3,
-      shadow: false,
-      child: SizedBox(
-        width: 38,
-        height: 38,
-        child: Center(
-          child: Text(
-            initials.isEmpty ? '?' : initials,
-            style: const TextStyle(
-              color: Glass.textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
-          ),
         ),
       ),
     );
@@ -1748,6 +1701,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 14),
+                if (widget.store != null && widget.entryId != null) ...<Widget>[
+                  _menuOption(
+                    icon: Icons.forum_outlined,
+                    title: 'Saved Chats',
+                    subtitle: 'Switch branches or start a new chat',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _openChatsSheet();
+                    },
+                  ),
+                ],
                 _menuOption(
                   icon: Icons.auto_awesome_motion_outlined,
                   title: 'Lorebook Inspector',
@@ -1960,7 +1924,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               Text(
                                 speed != null
                                     ? '${speed.toStringAsFixed(1)} tok/s'
-                                    : '--',
+                                    : (_chat.isStreaming
+                                        ? 'Measuring...'
+                                        : '--'),
                                 style: const TextStyle(
                                   color: Glass.textPrimary,
                                   fontSize: 16,
@@ -1970,7 +1936,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 duration != null
-                                    ? '${(duration.inMilliseconds / 1000).toStringAsFixed(1)}s  ·  $outputTokens tok'
+                                    ? '${(duration.inMilliseconds / 1000).toStringAsFixed(1)}s  ·  $outputTokens tok${_chat.isStreaming ? ' (live)' : ''}'
                                     : 'Awaiting turn',
                                 style: const TextStyle(
                                   color: Glass.textFaint,
@@ -2004,7 +1970,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               Text(
                                 cachedTokens != null
                                     ? '$cachedTokens tok'
-                                    : (promptTokens != null ? '0 tok' : '--'),
+                                    : (promptTokens != null
+                                        ? '0 tok'
+                                        : 'Not reported'),
                                 style: const TextStyle(
                                   color: Glass.textPrimary,
                                   fontSize: 16,
@@ -2013,7 +1981,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Prompt: ${promptTokens ?? contextCost} tok',
+                                promptTokens != null
+                                    ? 'Prompt: $promptTokens tok'
+                                    : 'Prompt: ~$contextCost tok',
                                 style: const TextStyle(
                                   color: Glass.textFaint,
                                   fontSize: 10,
@@ -2185,94 +2155,286 @@ class _HomeScreenState extends State<HomeScreen> {
   // --- persona switch sheet -----------------------------------------------
 
   void _openPersonaSwitchSheet() {
-    final List<PersonaProfile> personas = widget.settings.personas.isNotEmpty
-        ? widget.settings.personas
-        : <PersonaProfile>[widget.settings.activePersona];
-    final String activeId = widget.settings.activePersonaId;
-
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (BuildContext sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
-          child: GlassPanel(
-            radius: 28,
-            blur: 34,
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
-            tintStrength: 1.45,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Center(
-                    child: Container(
-                      width: 38,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Glass.tint(0.35),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'SWITCH PERSONA',
-                    style: TextStyle(
-                      color: Glass.textPrimary,
-                      fontSize: 12,
-                      letterSpacing: 1.6,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Select who you are in this conversation. {{user}} expands with this persona.',
-                    style: TextStyle(
-                      color: Glass.textFaint,
-                      fontSize: 11,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  for (final PersonaProfile persona in personas) ...<Widget>[
-                    _personaTile(persona, isSelected: persona.id == activeId),
-                    const SizedBox(height: 8),
-                  ],
-                  const SizedBox(height: 10),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      widget.onOpenSettings();
-                    },
-                    child: const GlassPanel(
-                      radius: 16,
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      tintStrength: 1.1,
-                      shadow: false,
-                      child: Center(
-                        child: Text(
-                          'Manage Personas in Settings',
-                          style: TextStyle(
-                            color: Glass.textSecondary,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
+        return StatefulBuilder(
+          builder: (BuildContext modalContext, StateSetter setModalState) {
+            final List<PersonaProfile> personas =
+                widget.settings.personas.isNotEmpty
+                    ? widget.settings.personas
+                    : <PersonaProfile>[widget.settings.activePersona];
+            final String activeId = widget.settings.activePersonaId;
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+              child: GlassPanel(
+                radius: 28,
+                blur: 34,
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+                tintStrength: 1.45,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Center(
+                        child: Container(
+                          width: 38,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Glass.tint(0.35),
+                            borderRadius: BorderRadius.circular(99),
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: <Widget>[
+                          const Text(
+                            'SWITCH PERSONA',
+                            style: TextStyle(
+                              color: Glass.textPrimary,
+                              fontSize: 12,
+                              letterSpacing: 1.6,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () async {
+                              await _showPersonaDialog();
+                              setModalState(() {});
+                            },
+                            child: const GlassPill(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              tintStrength: 1.5,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(Icons.add_rounded,
+                                      size: 14, color: Glass.textPrimary),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'NEW',
+                                    style: TextStyle(
+                                      color: Glass.textPrimary,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Select who you are in this conversation. {{user}} expands with this persona.',
+                        style: TextStyle(
+                          color: Glass.textFaint,
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      for (final PersonaProfile persona in personas) ...<Widget>[
+                        _personaTile(
+                          persona,
+                          isSelected: persona.id == activeId,
+                          onEdit: () async {
+                            await _showPersonaDialog(existing: persona);
+                            setModalState(() {});
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          widget.onOpenSettings();
+                        },
+                        child: const GlassPanel(
+                          radius: 16,
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          tintStrength: 1.1,
+                          shadow: false,
+                          child: Center(
+                            child: Text(
+                              'Manage Personas in Settings',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _personaTile(PersonaProfile persona, {required bool isSelected}) {
+  Future<void> _showPersonaDialog({PersonaProfile? existing}) async {
+    final TextEditingController nameCtrl =
+        TextEditingController(text: existing?.name ?? '');
+    final TextEditingController descCtrl =
+        TextEditingController(text: existing?.description ?? '');
+
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(24, 18, 15, 0.98),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: Glass.tint(0.2)),
+        ),
+        title: Text(
+          existing == null ? 'New Persona' : 'Edit Persona',
+          style: const TextStyle(
+            color: Glass.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'NAME (replaces {{user}})',
+              style: TextStyle(
+                color: Glass.textSecondary,
+                fontSize: 10,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Glass.tint(0.18)),
+              ),
+              child: TextField(
+                controller: nameCtrl,
+                style:
+                    const TextStyle(color: Glass.textPrimary, fontSize: 13.5),
+                decoration: const InputDecoration(
+                  hintText: 'e.g. You, Kestrel, Detective',
+                  hintStyle: TextStyle(color: Glass.textFaint, fontSize: 12),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'BIO / DESCRIPTION (replaces {{persona}})',
+              style: TextStyle(
+                color: Glass.textSecondary,
+                fontSize: 10,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Glass.tint(0.18)),
+              ),
+              child: TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                style: const TextStyle(color: Glass.textPrimary, fontSize: 13),
+                decoration: const InputDecoration(
+                  hintText: 'Personality, background, appearance...',
+                  hintStyle: TextStyle(color: Glass.textFaint, fontSize: 12),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 8),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child:
+                const Text('Cancel', style: TextStyle(color: Glass.textFaint)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child:
+                const Text('Save', style: TextStyle(color: Glass.textPrimary)),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true) return;
+    final String newName =
+        nameCtrl.text.trim().isEmpty ? 'You' : nameCtrl.text.trim();
+    final String newDesc = descCtrl.text.trim();
+
+    final List<PersonaProfile> current =
+        List<PersonaProfile>.from(widget.settings.personas);
+    AppSettings updated;
+    if (existing == null) {
+      final PersonaProfile created = PersonaProfile(
+        id: 'p_${DateTime.now().millisecondsSinceEpoch}',
+        name: newName,
+        description: newDesc,
+      );
+      current.add(created);
+      updated = widget.settings.copyWith(
+        personas: current,
+        activePersonaId: created.id,
+      );
+    } else {
+      final int idx =
+          current.indexWhere((PersonaProfile p) => p.id == existing.id);
+      if (idx != -1) {
+        current[idx] = existing.copyWith(name: newName, description: newDesc);
+        updated = widget.settings.copyWith(personas: current);
+      } else {
+        return;
+      }
+    }
+
+    await SettingsStore().save(updated);
+    if (!mounted) return;
+    setState(() {
+      _chat.updateSettings(updated);
+    });
+  }
+
+  Widget _personaTile(
+    PersonaProfile persona, {
+    required bool isSelected,
+    required VoidCallback onEdit,
+  }) {
     return GestureDetector(
       onTap: () async {
         final AppSettings updated =
@@ -2347,9 +2509,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            if (isSelected)
-              const Icon(Icons.check_circle_rounded,
-                  size: 20, color: Color.fromRGBO(245, 180, 80, 1)),
+            if (isSelected) ...<Widget>[
+              const Icon(
+                Icons.check_circle_rounded,
+                size: 20,
+                color: Color.fromRGBO(245, 180, 80, 1),
+              ),
+              const SizedBox(width: 8),
+            ],
+            GestureDetector(
+              onTap: onEdit,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Glass.tint(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.edit_outlined,
+                  size: 16,
+                  color: Glass.textSecondary,
+                ),
+              ),
+            ),
           ],
         ),
       ),

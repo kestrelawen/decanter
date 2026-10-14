@@ -15,8 +15,19 @@ class ChatRichContent extends StatelessWidget {
   final bool isUser;
 
   static final RegExp _imagePattern = RegExp(
-    r'!\[(.*?)\]\((.*?)\)',
+    r'!\[(.*?)\]\((.*?)\)|<(?:img|image)\b([^>]*?)(?:\/?>|>)(?:\s*<\/(?:img|image)>)?',
+    caseSensitive: false,
     dotAll: true,
+  );
+
+  static final RegExp _srcAttrPattern = RegExp(
+    r'''src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))''',
+    caseSensitive: false,
+  );
+
+  static final RegExp _altAttrPattern = RegExp(
+    r'''alt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))''',
+    caseSensitive: false,
   );
 
   @override
@@ -65,8 +76,30 @@ class ChatRichContent extends StatelessWidget {
         }
       }
 
-      final String alt = match.group(1)?.trim() ?? '';
-      final String rawUrl = match.group(2)?.trim() ?? '';
+      String alt = '';
+      String rawUrl = '';
+
+      if (match.group(2) != null) {
+        // Markdown image: ![alt](url)
+        alt = match.group(1)?.trim() ?? '';
+        rawUrl = match.group(2)?.trim() ?? '';
+      } else if (match.group(3) != null) {
+        // HTML image tag: <img src="..." alt="...">
+        final String attrs = match.group(3)!;
+        final Match? srcMatch = _srcAttrPattern.firstMatch(attrs);
+        rawUrl = (srcMatch?.group(1) ??
+                srcMatch?.group(2) ??
+                srcMatch?.group(3) ??
+                '')
+            .trim();
+        final Match? altMatch = _altAttrPattern.firstMatch(attrs);
+        alt = (altMatch?.group(1) ??
+                altMatch?.group(2) ??
+                altMatch?.group(3) ??
+                '')
+            .trim();
+      }
+
       if (rawUrl.isNotEmpty) {
         segments.add(_ImageSegment(alt: alt, url: _normalizeUrl(rawUrl)));
       }
