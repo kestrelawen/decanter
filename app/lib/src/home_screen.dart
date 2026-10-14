@@ -98,10 +98,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Deliberately not on every streamed token: that would rewrite the file
   /// hundreds of times per reply for no benefit, because the recoverable state
   /// is the last settled one either way.
+  bool _cleared = false;
+
   void _persist() {
     final LibraryStore? store = widget.store;
     final String? id = widget.entryId;
-    if (store == null || id == null || _chat.isStreaming) return;
+    if (store == null || id == null || _chat.isStreaming || _cleared) return;
 
     if (_chat.revision == _lastSavedRevision) return;
     _lastSavedRevision = _chat.revision;
@@ -117,6 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final String? id = widget.entryId;
     if (store != null && id != null) store.clearChat(id);
 
+    _cleared = true;
     _chat.reset();
     _lastSavedRevision = _chat.revision;
   }
@@ -138,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _send() {
+    _cleared = false;
     final String text = _input.text.trim();
     if (text.isEmpty || _chat.isStreaming) return;
     _input.clear();
@@ -512,7 +516,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: const <Widget>[
                     Icon(
-                      Icons.refresh_rounded,
+                      Icons.sync_rounded,
                       size: 14,
                       color: Glass.textSecondary,
                     ),
