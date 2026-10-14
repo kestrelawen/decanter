@@ -422,7 +422,7 @@ class LibraryStore {
           'name': isUser ? userName : charName,
           'is_user': isUser,
           'is_name': true,
-          'send_date': (m.createdAt ?? DateTime.now()).toIso8601String(),
+          'send_date': DateTime.now().toIso8601String(),
           'mes': m.content,
           if (m.swipes.isNotEmpty) 'swipes': m.swipes,
           'swipe_id': m.swipeIndex,
