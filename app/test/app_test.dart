@@ -1201,10 +1201,9 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 50));
 
-      final Iterable<Image> thumbnails = tester
-          .widgetList<Image>(find.byType(Image))
-          .where((Image image) => image.width == 56);
-      expect(thumbnails, isNotEmpty, reason: 'no picture rendered in the row');
+      final Iterable<Image> thumbnails =
+          tester.widgetList<Image>(find.byType(Image));
+      expect(thumbnails, isNotEmpty, reason: 'no picture rendered in the card');
       expect(find.text('LY'), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());

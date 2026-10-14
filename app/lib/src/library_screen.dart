@@ -289,6 +289,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return GestureDetector(
       onTap: () => _open(entry),
       onLongPress: () => _confirmDelete(entry),
+      behavior: HitTestBehavior.opaque,
       child: GlassPanel(
         radius: 20,
         padding: EdgeInsets.zero,
@@ -419,6 +420,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ],
                       ),
                     ),
+                    if (entry.preview.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 2),
+                      Text(
+                        entry.preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Glass.textFaint,
+                          fontSize: 9.5,
+                          shadows: <Shadow>[
+                            Shadow(
+                              color: Colors.black,
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

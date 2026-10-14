@@ -345,6 +345,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _header() {
     final int greetingCount = widget.card.greetings.length;
+    final int active = _chat.scan?.activated.length ?? 0;
 
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
@@ -411,6 +412,13 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'Telemetry & Stats',
               onTap: _openSessionStatsSheet,
             ),
+            const SizedBox(width: 6),
+            GlassIconButton(
+              icon: Icons.auto_awesome_motion_outlined,
+              tooltip: 'Lorebook',
+              badge: active > 0 ? '$active' : null,
+              onTap: _openLoreSheet,
+            ),
             if (widget.store != null && widget.entryId != null) ...<Widget>[
               const SizedBox(width: 6),
               GlassIconButton(
@@ -419,6 +427,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: _openChatsSheet,
               ),
             ],
+            const SizedBox(width: 6),
+            GlassIconButton(
+              icon: Icons.refresh_rounded,
+              tooltip: 'New chat',
+              onTap: _newChat,
+            ),
             const SizedBox(width: 6),
             GlassIconButton(
               icon: Icons.more_vert_rounded,

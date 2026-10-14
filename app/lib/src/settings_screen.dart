@@ -627,14 +627,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: <Widget>[
                         Row(
                           children: <Widget>[
-                            const Text(
-                              'Your character personas in chats.',
-                              style: TextStyle(
-                                color: Glass.textFaint,
-                                fontSize: 11,
+                            const Expanded(
+                              child: Text(
+                                'Your character personas in chats.',
+                                style: TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
-                            const Spacer(),
+                            const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () => _showPersonaDialog(),
                               child: const GlassPill(
