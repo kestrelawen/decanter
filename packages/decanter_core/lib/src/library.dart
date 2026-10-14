@@ -416,7 +416,7 @@ class LibraryStore {
       'chat_metadata': <String, dynamic>{
         'title': chat.title,
       },
-      'mes': chat.messages.map((StoredChatMessage m) {
+      'mes': chat.messages.map((ChatMessage m) {
         final bool isUser = m.role == ChatRole.user;
         return <String, dynamic>{
           'name': isUser ? userName : charName,
