@@ -609,7 +609,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await pumpHome(tester);
-      await tester.longPress(find.text(loadBundledCard().greetings[0]));
+      await tester.longPress(find.byType(ChatRichContent).first);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
