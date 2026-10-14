@@ -1568,15 +1568,15 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 50));
 
-      final String initialOpening = loadBundledCard().greetings.first;
-      expect(find.textContaining(initialOpening), findsOneWidget);
+      expect(find.textContaining('Either come in or close it'), findsOneWidget);
 
       // Tap on the card title in header
       await tester.tap(find.text(loadBundledCard().name));
       await tester.pump();
 
       // Opening must stay unchanged!
-      expect(find.textContaining(initialOpening), findsOneWidget);
+      expect(find.textContaining('Either come in or close it'), findsOneWidget);
+      expect(find.textContaining("You're early"), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

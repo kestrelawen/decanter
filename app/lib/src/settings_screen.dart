@@ -89,12 +89,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static String _formatTokens(int count) {
     if (count <= 0) return 'Unlimited';
     if (count >= 1000000) {
-      final double m = count / 1000000;
-      return '${m.toStringAsFixed(count % 1000000 == 0 ? 0 : 1)}M';
+      if (count == 1048576 || count == 1000000) return '1M';
+      final double m = count / (count >= 1048576 ? 1048576 : 1000000);
+      return '${m.toStringAsFixed(1)}M';
     }
     if (count >= 1000) {
-      final double k = count / 1000;
-      return '${k.toStringAsFixed(count % 1000 == 0 ? 0 : 1)}k';
+      if (count % 1024 == 0) {
+        return '${count ~/ 1024}k';
+      }
+      if (count % 1000 == 0) {
+        return '${count ~/ 1000}k';
+      }
+      final double k = count / 1024;
+      return '${k.toStringAsFixed(1)}k';
     }
     return '$count';
   }
