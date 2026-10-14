@@ -1121,6 +1121,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
 
         expect(find.text('Branch conversation from here'), findsOneWidget);
+        await tester.ensureVisible(find.text('Branch conversation from here'));
         await tester.tap(find.text('Branch conversation from here'));
         await tester.pump(const Duration(milliseconds: 200));
         await tester.pump(const Duration(milliseconds: 200));

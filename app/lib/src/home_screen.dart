@@ -875,6 +875,7 @@ class _HomeScreenState extends State<HomeScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (BuildContext sheetContext) {
         return Padding(
           padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
@@ -883,10 +884,11 @@ class _HomeScreenState extends State<HomeScreen> {
             blur: 32,
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
             tintStrength: 1.4,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
                 Center(
                   child: Container(
                     width: 36,
@@ -987,7 +989,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }
