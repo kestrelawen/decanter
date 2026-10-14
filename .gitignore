@@ -2,6 +2,7 @@
 .dart_tool/
 .packages
 build/
+build_artifacts/
 .flutter-plugins
 .flutter-plugins-dependencies
 pubspec.lock

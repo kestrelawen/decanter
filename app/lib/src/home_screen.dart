@@ -38,11 +38,14 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
-  int _greetingIndex = 0;
+  int get _greetingIndex =>
+      (_chat.history.isNotEmpty && _chat.history.first.swipes.isNotEmpty)
+          ? _chat.history.first.swipeIndex
+          : 0;
 
-  /// How many messages were on disk at the last save, so an unchanged history
-  /// does not rewrite the file.
-  int _lastSavedCount = 0;
+  /// Revision of the chat when it was last saved, so unchanged state does not
+  /// rewrite the file.
+  int _lastSavedRevision = -1;
 
   @override
   void initState() {
@@ -62,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (saved.isEmpty) return;
 
     _chat.replaceHistory(saved.messages);
-    _lastSavedCount = saved.messages.length;
+    _lastSavedRevision = _chat.revision;
   }
 
   @override
@@ -100,10 +103,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final String? id = widget.entryId;
     if (store == null || id == null || _chat.isStreaming) return;
 
-    final List<ChatMessage> history = _chat.history;
-    if (history.length == _lastSavedCount) return;
-    _lastSavedCount = history.length;
-    store.saveChat(id, history);
+    if (_chat.revision == _lastSavedRevision) return;
+    _lastSavedRevision = _chat.revision;
+    store.saveChat(id, _chat.history);
   }
 
   /// Abandons the conversation and starts again from the greeting.
@@ -116,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (store != null && id != null) store.clearChat(id);
 
     _chat.reset();
-    _lastSavedCount = _chat.history.length;
+    _lastSavedRevision = _chat.revision;
   }
 
   /// Keeps the newest content in view, but only when the user is already near
@@ -146,9 +148,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _cycleGreeting() {
     final int count = widget.card.greetings.length;
-    if (count < 2) return;
-    setState(() => _greetingIndex = (_greetingIndex + 1) % count);
-    _chat.useGreeting(_greetingIndex);
+    if (count < 2 || _chat.history.isEmpty) return;
+    final int next = (_greetingIndex + 1) % count;
+    _chat.useGreeting(next);
   }
 
   // --- build --------------------------------------------------------------
@@ -309,7 +311,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _messageList() {
     final List<ChatMessage> history = _chat.history;
-    final int extra = _chat.isStreaming ? 1 : 0;
+    final int extra =
+        (_chat.isStreaming && _chat.regeneratingIndex == null) ? 1 : 0;
 
     return ListView.builder(
       controller: _scroll,
@@ -328,15 +331,30 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         }
+
+        final bool isRegeneratingThis =
+            _chat.isStreaming && _chat.regeneratingIndex == index;
+        final ChatMessage message = isRegeneratingThis
+            ? history[index].copyWith(content: _chat.streamingText)
+            : history[index];
+
         return KeyedSubtree(
           key: ValueKey<int>(index),
-          child: _bubble(history[index]),
+          child: _bubble(
+            message,
+            messageIndex: index,
+            streaming: isRegeneratingThis,
+          ),
         );
       },
     );
   }
 
-  Widget _bubble(ChatMessage message, {bool streaming = false}) {
+  Widget _bubble(
+    ChatMessage message, {
+    int? messageIndex,
+    bool streaming = false,
+  }) {
     if (message.isSystemNote) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 8),
@@ -354,8 +372,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final bool mine = message.role == ChatRole.user;
     final String text = message.content.trim();
+    final List<ChatMessage> history = _chat.history;
+    final bool isLastAssistant = !mine &&
+        messageIndex != null &&
+        messageIndex ==
+            history.lastIndexWhere(
+              (ChatMessage m) => m.role == ChatRole.assistant,
+            );
+    final bool showSwipeControls = !mine &&
+        !streaming &&
+        messageIndex != null &&
+        (message.hasSwipes || isLastAssistant);
 
-    return Align(
+    final Widget bubbleContent = Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
@@ -368,18 +397,162 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(15, 12, 15, 12),
           tintStrength: mine ? 1.25 : 0.85,
           shadow: false,
-          child: text.isEmpty && streaming
-              ? const _ThinkingDots()
-              : Text(
-                  text,
-                  style: TextStyle(
-                    color: mine ? Glass.textPrimary : Glass.textSecondary,
-                    fontSize: 14.5,
-                    height: 1.42,
-                  ),
-                ),
+          child: Column(
+            crossAxisAlignment:
+                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              text.isEmpty && streaming
+                  ? const _ThinkingDots()
+                  : Text(
+                      text,
+                      style: TextStyle(
+                        color: mine ? Glass.textPrimary : Glass.textSecondary,
+                        fontSize: 14.5,
+                        height: 1.42,
+                      ),
+                    ),
+              if (showSwipeControls) ...<Widget>[
+                const SizedBox(height: 8),
+                _swipeToolbar(message, messageIndex, isLastAssistant),
+              ],
+            ],
+          ),
         ),
       ),
+    );
+
+    if (!mine && !streaming && messageIndex != null) {
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (DragEndDetails details) {
+          final double? velocity = details.primaryVelocity;
+          if (velocity == null) return;
+          if (velocity < -120) {
+            // Swiped left (finger drags right-to-left) -> next swipe or regenerate
+            if (message.canSwipeRight) {
+              _chat.nextSwipe(messageIndex);
+            } else if (isLastAssistant && !_chat.isStreaming) {
+              _chat.regenerate(messageIndex: messageIndex);
+            }
+          } else if (velocity > 120) {
+            // Swiped right (finger drags left-to-right) -> previous swipe
+            if (message.canSwipeLeft) {
+              _chat.previousSwipe(messageIndex);
+            }
+          }
+        },
+        child: bubbleContent,
+      );
+    }
+
+    return bubbleContent;
+  }
+
+  Widget _swipeToolbar(
+    ChatMessage message,
+    int messageIndex,
+    bool isLastAssistant,
+  ) {
+    final bool canLeft = message.canSwipeLeft;
+    final bool canRight = message.canSwipeRight;
+    final int total = message.swipes.length;
+    final int current = message.swipeIndex + 1;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (total > 1) ...<Widget>[
+          GestureDetector(
+            onTap: canLeft ? () => _chat.previousSwipe(messageIndex) : null,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Icon(
+                Icons.chevron_left_rounded,
+                size: 18,
+                color: canLeft ? Glass.textSecondary : Glass.tint(0.2),
+              ),
+            ),
+          ),
+          Text(
+            '$current/$total',
+            style: const TextStyle(
+              color: Glass.textFaint,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+          ),
+          GestureDetector(
+            onTap: canRight ? () => _chat.nextSwipe(messageIndex) : null,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: canRight ? Glass.textSecondary : Glass.tint(0.2),
+              ),
+            ),
+          ),
+        ],
+        if (isLastAssistant) ...<Widget>[
+          if (total > 1) const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _chat.isStreaming
+                ? null
+                : () => _chat.regenerate(messageIndex: messageIndex),
+            behavior: HitTestBehavior.opaque,
+            child: Tooltip(
+              message: 'Regenerate',
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const <Widget>[
+                    Icon(
+                      Icons.refresh_rounded,
+                      size: 14,
+                      color: Glass.textSecondary,
+                    ),
+                    SizedBox(width: 3),
+                    Text(
+                      'RETRY',
+                      style: TextStyle(
+                        color: Glass.textSecondary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+        if (total > 1) ...<Widget>[
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _chat.isStreaming
+                ? null
+                : () => _chat.deleteSwipe(messageIndex, message.swipeIndex),
+            behavior: HitTestBehavior.opaque,
+            child: Tooltip(
+              message: 'Delete swipe',
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 14,
+                  color: Glass.tint(0.4),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -523,8 +696,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     scan == null
                         ? 'This card has no lorebook.'
                         : '${scan.activated.length} active  ·  '
-                              '${scan.tokenCost} tok'
-                              '${scan.excludedByBudget.isEmpty ? '' : '  ·  ${scan.excludedByBudget.length} over budget'}',
+                            '${scan.tokenCost} tok'
+                            '${scan.excludedByBudget.isEmpty ? '' : '  ·  ${scan.excludedByBudget.length} over budget'}',
                     style: const TextStyle(
                       color: Glass.textFaint,
                       fontSize: 11,
@@ -682,8 +855,7 @@ class _ThinkingDotsState extends State<_ThinkingDots>
               Opacity(
                 // Staggered, so the dots read as travelling light rather than a
                 // single blink.
-                opacity:
-                    0.2 +
+                opacity: 0.2 +
                     0.7 *
                         (1 -
                             (((_controller.value * 3) - i) % 3 - 1.5).abs() /

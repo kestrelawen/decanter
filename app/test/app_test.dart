@@ -21,17 +21,18 @@ Uint8List cardJsonBytes({
   String name = 'Mira Vance',
   String description = 'A laconic cartographer.',
   String firstMes = 'Hello, traveller.',
-}) => utf8.encode(
-  jsonEncode(<String, dynamic>{
-    'spec': 'chara_card_v2',
-    'spec_version': '2.0',
-    'data': <String, dynamic>{
-      'name': name,
-      'description': description,
-      'first_mes': firstMes,
-    },
-  }),
-);
+}) =>
+    utf8.encode(
+      jsonEncode(<String, dynamic>{
+        'spec': 'chara_card_v2',
+        'spec_version': '2.0',
+        'data': <String, dynamic>{
+          'name': name,
+          'description': description,
+          'first_mes': firstMes,
+        },
+      }),
+    );
 
 /// An HTTP transport that replays one canned response.
 ///
@@ -153,11 +154,12 @@ void main() {
     ChatController controllerWith(
       ChatBackend backend, {
       AppSettings settings = configured,
-    }) => ChatController(
-      card: loadBundledCard(),
-      settings: settings,
-      backendFactory: (AppSettings _) => backend,
-    );
+    }) =>
+        ChatController(
+          card: loadBundledCard(),
+          settings: settings,
+          backendFactory: (AppSettings _) => backend,
+        );
 
     test('a streamed reply lands in history', () async {
       final backend = ScriptedBackend(<String>['Hel', 'lo']);
@@ -350,6 +352,72 @@ void main() {
       expect(controller.history.first.content, second);
       controller.dispose();
     });
+
+    test('navigating swipes alters visible assistant message', () {
+      final controller = controllerWith(ScriptedBackend(const <String>[]));
+      expect(controller.history.first.swipes.length, 2);
+      expect(controller.history.first.swipeIndex, 0);
+
+      controller.nextSwipe(0);
+      expect(controller.history.first.swipeIndex, 1);
+      expect(controller.history.first.content, loadBundledCard().greetings[1]);
+
+      controller.previousSwipe(0);
+      expect(controller.history.first.swipeIndex, 0);
+      expect(controller.history.first.content, loadBundledCard().greetings[0]);
+      controller.dispose();
+    });
+
+    test('regenerate appends a new swipe and updates content', () async {
+      final backend = ScriptedBackend(<String>['first reply']);
+      final controller = controllerWith(backend);
+
+      await controller.send('Hello');
+      expect(controller.history.last.content, 'first reply');
+      expect(controller.history.last.swipes, <String>['first reply']);
+      expect(controller.history.last.swipeIndex, 0);
+
+      final regenBackend = ScriptedBackend(<String>['second reply']);
+      final regenController = ChatController(
+        card: loadBundledCard(),
+        settings: configured,
+        backendFactory: (_) => regenBackend,
+      );
+      regenController.replaceHistory(controller.history);
+
+      await regenController.regenerate();
+
+      final ChatMessage last = regenController.history.last;
+      expect(last.content, 'second reply');
+      expect(last.swipes, <String>['first reply', 'second reply']);
+      expect(last.swipeIndex, 1);
+      expect(last.canSwipeLeft, isTrue);
+      expect(last.canSwipeRight, isFalse);
+
+      expect(regenBackend.lastRequest!.messages.last.role, ChatRole.user);
+      expect(regenBackend.lastRequest!.messages.last.content, 'Hello');
+
+      regenController.previousSwipe(regenController.history.length - 1);
+      expect(regenController.history.last.content, 'first reply');
+      expect(regenController.history.last.swipeIndex, 0);
+
+      controller.dispose();
+      regenController.dispose();
+    });
+
+    test('deleting a swipe removes it and updates active swipe', () {
+      final controller = controllerWith(ScriptedBackend(const <String>[]));
+      expect(controller.history.first.swipes.length, 2);
+
+      controller.nextSwipe(0);
+      expect(controller.history.first.swipeIndex, 1);
+
+      controller.deleteSwipe(0, 1);
+      expect(controller.history.first.swipes.length, 1);
+      expect(controller.history.first.swipeIndex, 0);
+      expect(controller.history.first.content, loadBundledCard().greetings[0]);
+      controller.dispose();
+    });
   });
 
   group('glass system', () {
@@ -440,6 +508,21 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    testWidgets('shows swipe counter for greeting with alternates', (
+      WidgetTester tester,
+    ) async {
+      await pumpHome(tester);
+
+      expect(find.text('1/2'), findsOneWidget);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+      await tester.pump();
+
+      expect(find.text('2/2'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   group('update service', () {
@@ -462,19 +545,19 @@ void main() {
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall call) async {
-            calls.add(call);
-            switch (call.method) {
-              case 'canInstallPackages':
-                return allowInstall;
-              case 'updateDirectory':
-                return staging.path;
-              case 'install':
-                return true;
-              case 'openInstallSettings':
-                return true;
-            }
-            return null;
-          });
+        calls.add(call);
+        switch (call.method) {
+          case 'canInstallPackages':
+            return allowInstall;
+          case 'updateDirectory':
+            return staging.path;
+          case 'install':
+            return true;
+          case 'openInstallSettings':
+            return true;
+        }
+        return null;
+      });
     });
 
     tearDown(() {
@@ -504,7 +587,8 @@ void main() {
       expect(calls.last.arguments, <String, dynamic>{'path': apk.path});
     });
 
-    test('install does not claim to have started when permission is missing', () async {
+    test('install does not claim to have started when permission is missing',
+        () async {
       allowInstall = false;
       final UpdateService service = UpdateService();
       addTearDown(service.dispose);
@@ -601,14 +685,14 @@ void main() {
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall call) async {
-            switch (call.method) {
-              case 'documentsDirectory':
-                return root.path;
-              case 'pickCardFile':
-                return pickResult;
-            }
-            return null;
-          });
+        switch (call.method) {
+          case 'documentsDirectory':
+            return root.path;
+          case 'pickCardFile':
+            return pickResult;
+        }
+        return null;
+      });
     });
 
     tearDown(() {
@@ -1068,7 +1152,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
 
       expect(transport.lastUrl!.path, '/v1/models');
-      expect(transport.lastHeaders!['Authorization'], 'Bearer ${configured.apiKey}');
+      expect(transport.lastHeaders!['Authorization'],
+          'Bearer ${configured.apiKey}');
       expect(find.text('alpha-model'), findsOneWidget);
       expect(find.text('beta-model'), findsOneWidget);
 

@@ -43,6 +43,8 @@ class ChatController extends ChangeNotifier {
   String _streamingText = '';
   bool _isStreaming = false;
   String? _error;
+  int? _regeneratingIndex;
+  int _revision = 0;
 
   /// Held explicitly rather than consumed with `await for`, so [stop] can cancel
   /// the request the moment it is called. An `await for` loop only notices a
@@ -56,6 +58,9 @@ class ChatController extends ChangeNotifier {
   /// The conversation, oldest first. Includes the opening greeting.
   List<ChatMessage> get history => List<ChatMessage>.unmodifiable(_history);
 
+  /// Incremented whenever history changes, so persistence can detect settled edits.
+  int get revision => _revision;
+
   /// What the lorebook did on the most recent turn.
   WorldInfoScanResult? get scan => _scan;
 
@@ -67,19 +72,26 @@ class ChatController extends ChangeNotifier {
 
   bool get isStreaming => _isStreaming;
 
+  /// Index of the message being regenerated, or null during normal turns.
+  int? get regeneratingIndex => _regeneratingIndex;
+
   /// A user-facing failure from the last turn, or null.
   String? get error => _error;
 
   /// Clears the chat and re-seeds it with the card's opening greeting.
   void reset() {
+    final List<String> greetings = card.greetings.isEmpty
+        ? const <String>['*They are here, and say nothing yet.*']
+        : card.greetings;
+
     _history
       ..clear()
       ..add(
         ChatMessage(
           role: ChatRole.assistant,
-          content: card.greetings.isEmpty
-              ? '*They are here, and say nothing yet.*'
-              : card.greetings.first,
+          content: greetings.first,
+          swipes: List<String>.from(greetings),
+          swipeIndex: 0,
         ),
       );
 
@@ -97,6 +109,8 @@ class ChatController extends ChangeNotifier {
     _isStreaming = false;
     _cancelled = false;
     _error = null;
+    _regeneratingIndex = null;
+    _revision++;
     notifyListeners();
   }
 
@@ -109,21 +123,78 @@ class ChatController extends ChangeNotifier {
     if (messages.isEmpty) return;
     _history
       ..clear()
-      ..addAll(messages);
+      ..addAll(
+        messages.map((ChatMessage m) {
+          if (m.swipes.isEmpty && m.content.isNotEmpty) {
+            return m.copyWith(swipes: <String>[m.content], swipeIndex: 0);
+          }
+          return m;
+        }),
+      );
     _scan = _runScan();
     _error = null;
+    _revision++;
     notifyListeners();
   }
 
   /// Swaps in a different opening greeting.
   void useGreeting(int index) {
+    if (_history.isEmpty) return;
     final List<String> greetings = card.greetings;
-    if (index < 0 || index >= greetings.length || _history.isEmpty) return;
-    _history[0] = ChatMessage(
-      role: ChatRole.assistant,
-      content: greetings[index],
-    );
+    if (index < 0 || index >= greetings.length) return;
+
+    final ChatMessage first = _history[0];
+    final int existingIndex = first.swipes.indexOf(greetings[index]);
+    if (existingIndex != -1) {
+      setSwipe(0, existingIndex);
+    } else {
+      _history[0] = first.withAddedSwipe(greetings[index]);
+      _scan = _runScan();
+      _revision++;
+      notifyListeners();
+    }
+  }
+
+  /// Selects a specific swipe index for a message in history.
+  void setSwipe(int messageIndex, int swipeIndex) {
+    if (messageIndex < 0 || messageIndex >= _history.length) return;
+    final ChatMessage message = _history[messageIndex];
+    if (swipeIndex < 0 || swipeIndex >= message.swipes.length) return;
+    if (message.swipeIndex == swipeIndex) return;
+
+    _history[messageIndex] = message.withSwipeIndex(swipeIndex);
     _scan = _runScan();
+    _revision++;
+    notifyListeners();
+  }
+
+  /// Navigates to the previous swipe for a message.
+  void previousSwipe(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _history.length) return;
+    final ChatMessage message = _history[messageIndex];
+    if (message.canSwipeLeft) {
+      setSwipe(messageIndex, message.swipeIndex - 1);
+    }
+  }
+
+  /// Navigates to the next swipe for a message.
+  void nextSwipe(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _history.length) return;
+    final ChatMessage message = _history[messageIndex];
+    if (message.canSwipeRight) {
+      setSwipe(messageIndex, message.swipeIndex + 1);
+    }
+  }
+
+  /// Deletes a specific swipe from a message.
+  void deleteSwipe(int messageIndex, int swipeIndex) {
+    if (messageIndex < 0 || messageIndex >= _history.length) return;
+    final ChatMessage message = _history[messageIndex];
+    if (message.swipes.length <= 1) return;
+
+    _history[messageIndex] = message.withDeletedSwipe(swipeIndex);
+    _scan = _runScan();
+    _revision++;
     notifyListeners();
   }
 
@@ -141,16 +212,23 @@ class ChatController extends ChangeNotifier {
     final String trimmed = text.trim();
     if (trimmed.isEmpty || _isStreaming) return;
 
-    _history.add(ChatMessage(role: ChatRole.user, content: trimmed));
+    _history.add(
+      ChatMessage(
+        role: ChatRole.user,
+        content: trimmed,
+        swipes: <String>[trimmed],
+        swipeIndex: 0,
+      ),
+    );
     _scan = _runScan();
     _error = null;
+    _revision++;
     notifyListeners();
 
     if (!settings.isConfigured) {
       // Not a failure state: a fresh install is simply unconfigured, and saying
       // so where the reply would appear beats a silent no-op.
-      _error =
-          'No backend configured. ${settings.configurationProblem} '
+      _error = 'No backend configured. ${settings.configurationProblem} '
           'Open settings to add one.';
       notifyListeners();
       return;
@@ -165,38 +243,81 @@ class ChatController extends ChangeNotifier {
       return;
     }
 
+    return _executeTurn(request, regeneratingIndex: null);
+  }
+
+  /// Generates an alternative swipe for an assistant message.
+  ///
+  /// Defaults to the last assistant message in history.
+  Future<void> regenerate({int? messageIndex}) async {
+    if (_history.isEmpty || _isStreaming) return;
+
+    final int targetIndex = messageIndex ??
+        _history.lastIndexWhere(
+          (ChatMessage m) => m.role == ChatRole.assistant,
+        );
+    if (targetIndex < 0 ||
+        targetIndex >= _history.length ||
+        _history[targetIndex].role != ChatRole.assistant) {
+      return;
+    }
+
+    if (!settings.isConfigured) {
+      _error = 'No backend configured. ${settings.configurationProblem} '
+          'Open settings to add one.';
+      notifyListeners();
+      return;
+    }
+
+    final List<ChatMessage> historyForPrompt = _history.sublist(0, targetIndex);
+    final ChatRequest request;
+    try {
+      request = _buildRequest(historyOverride: historyForPrompt);
+    } on Object catch (error) {
+      _error = 'Could not assemble the prompt: $error';
+      notifyListeners();
+      return;
+    }
+
+    return _executeTurn(request, regeneratingIndex: targetIndex);
+  }
+
+  Future<void> _executeTurn(
+    ChatRequest request, {
+    required int? regeneratingIndex,
+  }) {
     final ChatBackend backend = _backendFactory(settings);
     final Completer<void> turn = Completer<void>();
 
     _activeBackend = backend;
     _turn = turn;
+    _regeneratingIndex = regeneratingIndex;
     _cancelled = false;
     _isStreaming = true;
     _streamingText = '';
+    _error = null;
     notifyListeners();
 
-    _subscription = backend
-        .stream(request)
-        .listen(
-          (ChatChunk chunk) {
-            if (_cancelled) return;
-            if (chunk.delta.isNotEmpty) {
-              _streamingText += chunk.delta;
-              notifyListeners();
-            }
-            if (chunk.done) _finishTurn();
-          },
-          onError: (Object error) {
-            if (!_cancelled) {
-              _error = error is BackendException
-                  ? error.friendlyMessage
-                  : 'Request failed: $error';
-            }
-            _finishTurn();
-          },
-          onDone: _finishTurn,
-          cancelOnError: true,
-        );
+    _subscription = backend.stream(request).listen(
+      (ChatChunk chunk) {
+        if (_cancelled) return;
+        if (chunk.delta.isNotEmpty) {
+          _streamingText += chunk.delta;
+          notifyListeners();
+        }
+        if (chunk.done) _finishTurn();
+      },
+      onError: (Object error) {
+        if (!_cancelled) {
+          _error = error is BackendException
+              ? error.friendlyMessage
+              : 'Request failed: $error';
+        }
+        _finishTurn();
+      },
+      onDone: _finishTurn,
+      cancelOnError: true,
+    );
 
     return turn.future;
   }
@@ -207,12 +328,27 @@ class ChatController extends ChangeNotifier {
     if (turn == null || turn.isCompleted) return;
     _turn = null;
 
+    final int? regenIndex = _regeneratingIndex;
+    _regeneratingIndex = null;
+
     if (!_cancelled) {
       final String reply = _streamingText.trim();
       if (reply.isEmpty) {
         _error ??= 'The provider returned an empty reply.';
       } else {
-        _history.add(ChatMessage(role: ChatRole.assistant, content: reply));
+        if (regenIndex != null && regenIndex < _history.length) {
+          _history[regenIndex] = _history[regenIndex].withAddedSwipe(reply);
+        } else {
+          _history.add(
+            ChatMessage(
+              role: ChatRole.assistant,
+              content: reply,
+              swipes: <String>[reply],
+              swipeIndex: 0,
+            ),
+          );
+        }
+        _revision++;
       }
     }
 
@@ -237,9 +373,24 @@ class ChatController extends ChangeNotifier {
     if (!_isStreaming) return;
     _cancelled = true;
 
+    final int? regenIndex = _regeneratingIndex;
+    _regeneratingIndex = null;
+
     final String partial = _streamingText.trim();
     if (partial.isNotEmpty) {
-      _history.add(ChatMessage(role: ChatRole.assistant, content: partial));
+      if (regenIndex != null && regenIndex < _history.length) {
+        _history[regenIndex] = _history[regenIndex].withAddedSwipe(partial);
+      } else {
+        _history.add(
+          ChatMessage(
+            role: ChatRole.assistant,
+            content: partial,
+            swipes: <String>[partial],
+            swipeIndex: 0,
+          ),
+        );
+      }
+      _revision++;
     }
 
     // Cancel first: this is what actually abandons the HTTP request.
@@ -259,6 +410,7 @@ class ChatController extends ChangeNotifier {
     }
     _scan = _runScan();
     _error = null;
+    _revision++;
     notifyListeners();
   }
 
@@ -281,16 +433,16 @@ class ChatController extends ChangeNotifier {
     );
   }
 
-  ChatRequest _buildRequest() {
+  ChatRequest _buildRequest({List<ChatMessage>? historyOverride}) {
+    final List<ChatMessage> historyToUse = historyOverride ?? _history;
     final AssembledPrompt prompt = const PromptAssembler().assemble(
       card: card,
       userName: settings.personaName,
       personaDescription: settings.personaDescription,
-      history: _history,
+      history: historyToUse,
       lore: _scan,
-      authorNote: settings.authorNote.trim().isEmpty
-          ? null
-          : settings.authorNote,
+      authorNote:
+          settings.authorNote.trim().isEmpty ? null : settings.authorNote,
       contextBudget: settings.contextBudget,
     );
     _lastPrompt = prompt;
