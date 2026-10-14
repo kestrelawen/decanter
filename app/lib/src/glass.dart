@@ -165,15 +165,15 @@ class GlassPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GlassPanel(
-    radius: 999,
-    blur: 20,
-    padding: padding,
-    tintStrength: tintStrength,
-    borderStrength: 0.9,
-    showSpecular: false,
-    shadow: false,
-    child: child,
-  );
+        radius: 999,
+        blur: 20,
+        padding: padding,
+        tintStrength: tintStrength,
+        borderStrength: 0.9,
+        showSpecular: false,
+        shadow: false,
+        child: child,
+      );
 }
 
 /// The background image, drifting slowly so the glass has something to move
@@ -337,7 +337,10 @@ class GlassIconButton extends StatelessWidget {
 /// The band is a diagonal gradient in a full-size overlay; the parent's clip
 /// does the masking, so this needs no shader and no layout negotiation.
 class SheenSweep extends StatefulWidget {
-  const SheenSweep({super.key, required this.child, this.period = const Duration(seconds: 8)});
+  const SheenSweep(
+      {super.key,
+      required this.child,
+      this.period = const Duration(seconds: 8)});
 
   final Widget child;
   final Duration period;

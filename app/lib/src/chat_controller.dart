@@ -425,10 +425,10 @@ class ChatController extends ChangeNotifier {
           final String s = error.toString().toLowerCase();
           final bool isDroppedSocket =
               s.contains('connection closed while receiving data') ||
-              s.contains('connection closed before full header') ||
-              s.contains('connection reset') ||
-              s.contains('software caused connection abort') ||
-              s.contains('broken pipe');
+                  s.contains('connection closed before full header') ||
+                  s.contains('connection reset') ||
+                  s.contains('software caused connection abort') ||
+                  s.contains('broken pipe');
           if (_streamingText.trim().isNotEmpty && isDroppedSocket) {
             _error = null;
           } else {
@@ -531,8 +531,7 @@ class ChatController extends ChangeNotifier {
                 !partial.startsWith('\n'))
             ? ' $partial'
             : partial;
-        _history[contIndex] =
-            _history[contIndex].withAppendedContent(toAppend);
+        _history[contIndex] = _history[contIndex].withAppendedContent(toAppend);
       } else if (regenIndex != null && regenIndex < _history.length) {
         _history[regenIndex] =
             _history[regenIndex].withAddedSwipe(partial.trim());

@@ -1062,6 +1062,72 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets(
+      'opening chats sheet lists threads and allows creating a new chat',
+      (WidgetTester tester) async {
+        final LibraryEntry entry = library.importCard(
+          bytes: cardJsonBytes(),
+          fileName: 'mira.json',
+        );
+        library.saveChat(entry.id, <ChatMessage>[
+          const ChatMessage(
+            role: ChatRole.assistant,
+            content: 'First chat message',
+          ),
+        ]);
+        await pumpChat(tester, entry.id);
+
+        expect(find.byIcon(Icons.forum_outlined), findsOneWidget);
+        await tester.tap(find.byIcon(Icons.forum_outlined));
+        await tester.pumpAndSettle();
+
+        expect(find.text('CHATS'), findsOneWidget);
+        expect(find.text('NEW CHAT'), findsOneWidget);
+        expect(find.text('Main Chat'), findsOneWidget);
+
+        await tester.tap(find.text('NEW CHAT'));
+        await tester.pumpAndSettle();
+
+        final List<StoredChat> allChats = library.listChats(entry.id);
+        expect(allChats.length, 2);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets(
+      'branching from message forks into a new chat thread',
+      (WidgetTester tester) async {
+        final LibraryEntry entry = library.importCard(
+          bytes: cardJsonBytes(),
+          fileName: 'mira.json',
+        );
+        library.saveChat(entry.id, <ChatMessage>[
+          const ChatMessage(role: ChatRole.assistant, content: 'Root intro'),
+          const ChatMessage(role: ChatRole.user, content: 'Branch point'),
+          const ChatMessage(
+            role: ChatRole.assistant,
+            content: 'Subsequent turn',
+          ),
+        ]);
+        await pumpChat(tester, entry.id);
+
+        expect(find.textContaining('Branch point'), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.more_horiz_rounded).first);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Branch conversation from here'), findsOneWidget);
+        await tester.tap(find.text('Branch conversation from here'));
+        await tester.pumpAndSettle();
+
+        final List<StoredChat> chats = library.listChats(entry.id);
+        expect(chats.length, 2);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
     testWidgets('without a library the screen still works, unsaved', (
       WidgetTester tester,
     ) async {
@@ -1376,4 +1442,3 @@ void main() {
     });
   });
 }
-

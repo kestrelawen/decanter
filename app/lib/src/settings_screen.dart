@@ -71,7 +71,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Only overwrite the model if the user has not written their own — losing
       // a typed model name on a preset tap would be infuriating.
       if (_model.text.trim().isEmpty ||
-          BackendPreset.all.any((BackendPreset p) => p.defaultModel == _model.text)) {
+          BackendPreset.all
+              .any((BackendPreset p) => p.defaultModel == _model.text)) {
         _model.text = preset.defaultModel;
       }
       _draft = _draft.copyWith(
@@ -156,7 +157,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(
         () => _modelError =
             'That endpoint listed no models. Some servers do not implement '
-            '/models — type the name in instead.',
+                '/models — type the name in instead.',
       );
       return;
     }
@@ -238,15 +239,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   AppSettings _collect() => _draft.copyWith(
-    baseUrl: _baseUrl.text.trim(),
-    apiKey: _apiKey.text.trim(),
-    model: _model.text.trim(),
-    personaName: _persona.text.trim().isEmpty ? 'You' : _persona.text.trim(),
-    updateRepo: _updateRepo.text.trim().isEmpty
-        ? 'kestrelawen/decanter'
-        : _updateRepo.text.trim(),
-    updateToken: _updateToken.text.trim(),
-  );
+        baseUrl: _baseUrl.text.trim(),
+        apiKey: _apiKey.text.trim(),
+        model: _model.text.trim(),
+        personaName:
+            _persona.text.trim().isEmpty ? 'You' : _persona.text.trim(),
+        updateRepo: _updateRepo.text.trim().isEmpty
+            ? 'kestrelawen/decanter'
+            : _updateRepo.text.trim(),
+        updateToken: _updateToken.text.trim(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -384,8 +386,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             value: _draft.temperature.clamp(0.0, 2.0),
                             max: 2,
                             divisions: 40,
-                            onChanged: (double v) =>
-                                setState(() => _draft = _draft.copyWith(temperature: v)),
+                            onChanged: (double v) => setState(
+                                () => _draft = _draft.copyWith(temperature: v)),
                           ),
                         ),
                       ],

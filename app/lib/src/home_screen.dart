@@ -49,6 +49,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// rewrite the file.
   int _lastSavedRevision = -1;
 
+  /// Identifier of the active conversation thread.
+  String? _activeChatId;
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (store == null || id == null) return;
 
     final StoredChat saved = store.loadChat(id);
+    _activeChatId = saved.id.isEmpty ? 'main' : saved.id;
     if (saved.isEmpty) return;
 
     _chat.replaceHistory(saved.messages);
@@ -109,7 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_chat.revision == _lastSavedRevision) return;
     _lastSavedRevision = _chat.revision;
-    store.saveChat(id, _chat.history);
+    store.saveChat(id, _chat.history, chatId: _activeChatId);
   }
 
   /// Abandons the conversation and starts again from the greeting.
@@ -119,11 +123,132 @@ class _HomeScreenState extends State<HomeScreen> {
   void _startFresh() {
     final LibraryStore? store = widget.store;
     final String? id = widget.entryId;
-    if (store != null && id != null) store.clearChat(id);
+    if (store != null && id != null) {
+      store.clearChat(id, _activeChatId);
+    }
 
     _cleared = true;
     _chat.reset();
     _lastSavedRevision = _chat.revision;
+  }
+
+  void _switchChat(String chatId) {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) return;
+
+    if (!_chat.isStreaming &&
+        !_cleared &&
+        _chat.revision != _lastSavedRevision) {
+      store.saveChat(id, _chat.history, chatId: _activeChatId);
+      _lastSavedRevision = _chat.revision;
+    }
+
+    final StoredChat target = store.loadChat(id, chatId);
+    _activeChatId = chatId;
+    _cleared = false;
+    _chat.replaceHistory(target.messages);
+    _lastSavedRevision = _chat.revision;
+    _follow();
+  }
+
+  void _createNewChat({String? title, List<ChatMessage>? initialMessages}) {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) {
+      _startFresh();
+      return;
+    }
+
+    if (!_chat.isStreaming &&
+        !_cleared &&
+        _chat.revision != _lastSavedRevision) {
+      store.saveChat(id, _chat.history, chatId: _activeChatId);
+      _lastSavedRevision = _chat.revision;
+    }
+
+    final List<ChatMessage> initial = initialMessages ??
+        <ChatMessage>[
+          ChatMessage(
+            role: ChatRole.assistant,
+            content: widget.card.greeting,
+          ),
+        ];
+
+    final StoredChat created = store.createNewChat(
+      id,
+      title: title,
+      initialMessages: initial,
+    );
+
+    _activeChatId = created.id;
+    _cleared = false;
+    _chat.replaceHistory(created.messages);
+    _lastSavedRevision = _chat.revision;
+    _follow();
+  }
+
+  void _branchFromMessage(int messageIndex) {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) return;
+
+    if (!_chat.isStreaming &&
+        !_cleared &&
+        _chat.revision != _lastSavedRevision) {
+      store.saveChat(id, _chat.history, chatId: _activeChatId);
+      _lastSavedRevision = _chat.revision;
+    }
+
+    final StoredChat branched = store.forkChat(
+      id,
+      _activeChatId ?? 'main',
+      messageIndex,
+      newTitle: 'Branch #${messageIndex + 1}',
+    );
+
+    _activeChatId = branched.id;
+    _cleared = false;
+    _chat.replaceHistory(branched.messages);
+    _lastSavedRevision = _chat.revision;
+    _follow();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Branched to "${branched.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _forkChatThread(StoredChat chat) {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) return;
+
+    final StoredChat branched = store.forkChat(
+      id,
+      chat.id,
+      chat.messages.isEmpty ? 0 : chat.messages.length - 1,
+      newTitle: '${chat.title.isEmpty ? "Chat" : chat.title} (Copy)',
+    );
+
+    _activeChatId = branched.id;
+    _cleared = false;
+    _chat.replaceHistory(branched.messages);
+    _lastSavedRevision = _chat.revision;
+    _follow();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Switched to "${branched.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   /// Keeps the newest content in view, but only when the user is already near
@@ -280,15 +405,32 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            if (widget.store != null && widget.entryId != null) ...<Widget>[
+              _IconAction(
+                icon: Icons.forum_outlined,
+                tooltip: 'Chats',
+                onTap: _openChatsSheet,
+              ),
+              const SizedBox(width: 6),
+            ],
             _IconAction(
               icon: Icons.auto_awesome_motion_outlined,
+              tooltip: 'Lorebook',
               onTap: _openLoreSheet,
               badge: active > 0 ? '$active' : null,
             ),
             const SizedBox(width: 6),
-            _IconAction(icon: Icons.tune_rounded, onTap: widget.onOpenSettings),
+            _IconAction(
+              icon: Icons.tune_rounded,
+              tooltip: 'Settings',
+              onTap: widget.onOpenSettings,
+            ),
             const SizedBox(width: 6),
-            _IconAction(icon: Icons.refresh_rounded, onTap: _startFresh),
+            _IconAction(
+              icon: Icons.refresh_rounded,
+              tooltip: 'Restart chat',
+              onTap: _startFresh,
+            ),
           ],
         ),
       ),
@@ -814,6 +956,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                 ],
+                if (widget.store != null && widget.entryId != null) ...<Widget>[
+                  _actionTile(
+                    icon: Icons.fork_right_rounded,
+                    label: 'Branch conversation from here',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _branchFromMessage(messageIndex);
+                    },
+                  ),
+                ],
                 _actionTile(
                   icon: Icons.content_cut_rounded,
                   label: 'Prune from here to end',
@@ -1072,6 +1224,483 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // --- chat threads sheet -------------------------------------------------
+
+  String _formatTimestamp(DateTime? time) {
+    if (time == null) return '';
+    final Duration diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${time.month}/${time.day}';
+  }
+
+  void _openChatsSheet() {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chat management requires a saved card.')),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setSheetState) {
+            final List<StoredChat> chats = store.listChats(id);
+            final String activeId =
+                _activeChatId ?? (chats.isNotEmpty ? chats.first.id : 'main');
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+              child: GlassPanel(
+                radius: 30,
+                blur: 34,
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+                tintStrength: 1.5,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Glass.tint(0.35),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'CHATS',
+                              style: TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 12,
+                                letterSpacing: 1.6,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${chats.length} ${chats.length == 1 ? 'conversation' : 'conversations'}',
+                              style: const TextStyle(
+                                color: Glass.textFaint,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Glass.tint(0.25),
+                            foregroundColor: Glass.textPrimary,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(
+                                color: Glass.tint(0.2),
+                                width: 0.8,
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text(
+                            'NEW CHAT',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            _createNewChat();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.5,
+                      ),
+                      child: chats.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child: Text(
+                                  'No saved chats yet.',
+                                  style: TextStyle(
+                                    color: Glass.textFaint,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: chats.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (BuildContext _, int index) {
+                                final StoredChat chat = chats[index];
+                                final bool isActive = chat.id == activeId;
+
+                                return _chatRow(
+                                  chat: chat,
+                                  isActive: isActive,
+                                  onSelect: () {
+                                    Navigator.of(sheetContext).pop();
+                                    if (!isActive) _switchChat(chat.id);
+                                  },
+                                  onRename: () {
+                                    _showRenameChatDialog(sheetContext, chat,
+                                        () {
+                                      setSheetState(() {});
+                                    });
+                                  },
+                                  onFork: () {
+                                    Navigator.of(sheetContext).pop();
+                                    _forkChatThread(chat);
+                                  },
+                                  onDelete: () {
+                                    _confirmDeleteChat(sheetContext, chat, () {
+                                      if (chat.id == activeId) {
+                                        final List<StoredChat> remaining =
+                                            store.listChats(id);
+                                        if (remaining.isNotEmpty) {
+                                          _switchChat(remaining.first.id);
+                                        } else {
+                                          _createNewChat();
+                                        }
+                                      }
+                                      setSheetState(() {});
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _chatRow({
+    required StoredChat chat,
+    required bool isActive,
+    required VoidCallback onSelect,
+    required VoidCallback onRename,
+    required VoidCallback onFork,
+    required VoidCallback onDelete,
+  }) {
+    final String timeStr = _formatTimestamp(chat.savedAt ?? chat.createdAt);
+
+    return InkWell(
+      onTap: onSelect,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: isActive ? Glass.tint(0.18) : Glass.shade(0.22),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isActive ? Glass.tint(0.55) : Glass.tint(0.08),
+            width: isActive ? 1.2 : 0.6,
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              isActive
+                  ? Icons.check_circle_rounded
+                  : Icons.chat_bubble_outline_rounded,
+              size: 20,
+              color: isActive ? Glass.tint(0.9) : Glass.textFaint,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(
+                          chat.title.isEmpty ? 'Chat' : chat.title,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isActive
+                                ? Glass.textPrimary
+                                : Glass.textSecondary,
+                            fontSize: 13.5,
+                            fontWeight:
+                                isActive ? FontWeight.w600 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      if (timeStr.isNotEmpty) ...<Widget>[
+                        const SizedBox(width: 8),
+                        Text(
+                          timeStr,
+                          style: const TextStyle(
+                            color: Glass.textFaint,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    chat.preview.isNotEmpty
+                        ? chat.preview
+                        : '${chat.messageCount} ${chat.messageCount == 1 ? 'message' : 'messages'}',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Glass.textFaint,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                size: 18,
+                color: Glass.textFaint,
+              ),
+              color: const Color.fromRGBO(28, 22, 20, 0.98),
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(color: Glass.tint(0.2), width: 0.8),
+              ),
+              onSelected: (String value) {
+                switch (value) {
+                  case 'rename':
+                    onRename();
+                    break;
+                  case 'fork':
+                    onFork();
+                    break;
+                  case 'delete':
+                    onDelete();
+                    break;
+                }
+              },
+              itemBuilder: (BuildContext _) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'rename',
+                  child: Row(
+                    children: <Widget>[
+                      Icon(Icons.edit_outlined,
+                          size: 16, color: Glass.textPrimary),
+                      SizedBox(width: 10),
+                      Text('Rename',
+                          style: TextStyle(
+                              color: Glass.textPrimary, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'fork',
+                  child: Row(
+                    children: <Widget>[
+                      Icon(Icons.fork_right_rounded,
+                          size: 16, color: Glass.textPrimary),
+                      SizedBox(width: 10),
+                      Text('Duplicate / Branch',
+                          style: TextStyle(
+                              color: Glass.textPrimary, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Row(
+                    children: <Widget>[
+                      Icon(Icons.delete_outline_rounded,
+                          size: 16, color: Color.fromRGBO(240, 140, 140, 1)),
+                      SizedBox(width: 10),
+                      Text('Delete',
+                          style: TextStyle(
+                              color: Color.fromRGBO(240, 140, 140, 1),
+                              fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRenameChatDialog(
+      BuildContext sheetContext, StoredChat chat, VoidCallback onRenamed) {
+    final TextEditingController titleController =
+        TextEditingController(text: chat.title);
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: GlassPanel(
+            radius: 24,
+            blur: 28,
+            padding: const EdgeInsets.all(20),
+            tintStrength: 1.4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'RENAME CHAT',
+                  style: TextStyle(
+                    color: Glass.textPrimary,
+                    fontSize: 12,
+                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Glass.shade(0.35),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Glass.tint(0.15), width: 0.8),
+                  ),
+                  child: TextField(
+                    controller: titleController,
+                    autofocus: true,
+                    style:
+                        const TextStyle(color: Glass.textPrimary, fontSize: 14),
+                    cursorColor: Glass.tint(0.9),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      border: InputBorder.none,
+                      hintText: 'Chat title',
+                      hintStyle: TextStyle(color: Glass.textFaint),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('CANCEL',
+                          style: TextStyle(color: Glass.textFaint)),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Glass.tint(0.2),
+                        foregroundColor: Glass.textPrimary,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        final String newTitle = titleController.text.trim();
+                        if (newTitle.isNotEmpty &&
+                            widget.store != null &&
+                            widget.entryId != null) {
+                          widget.store!
+                              .renameChat(widget.entryId!, chat.id, newTitle);
+                          onRenamed();
+                        }
+                        Navigator.of(dialogContext).pop();
+                      },
+                      child: const Text('RENAME'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteChat(
+      BuildContext sheetContext, StoredChat chat, VoidCallback onDeleted) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color.fromRGBO(24, 18, 16, 0.95),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text(
+            'Delete chat?',
+            style: TextStyle(color: Glass.textPrimary, fontSize: 16),
+          ),
+          content: Text(
+            'Are you sure you want to delete "${chat.title}"? This cannot be undone.',
+            style: const TextStyle(color: Glass.textSecondary, fontSize: 13),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('CANCEL',
+                  style: TextStyle(color: Glass.textFaint)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromRGBO(180, 50, 50, 0.8),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                if (widget.store != null && widget.entryId != null) {
+                  widget.store!.deleteChat(widget.entryId!, chat.id);
+                  onDeleted();
+                }
+              },
+              child: const Text('DELETE'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // --- lore sheet ---------------------------------------------------------
 
   /// The lorebook readout used to sit permanently along the bottom, taking
@@ -1306,15 +1935,21 @@ class _ThinkingDotsState extends State<_ThinkingDots>
 
 /// A circular glass button holding one icon, with an optional count badge.
 class _IconAction extends StatelessWidget {
-  const _IconAction({required this.icon, required this.onTap, this.badge});
+  const _IconAction({
+    required this.icon,
+    required this.onTap,
+    this.badge,
+    this.tooltip,
+  });
 
   final IconData icon;
   final VoidCallback onTap;
   final String? badge;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    final Widget button = GlassPanel(
+    Widget button = GlassPanel(
       radius: 999,
       blur: 12,
       padding: const EdgeInsets.all(9),
@@ -1323,6 +1958,10 @@ class _IconAction extends StatelessWidget {
       showSpecular: false,
       child: Icon(icon, size: 16, color: Glass.textPrimary),
     );
+
+    if (tooltip != null) {
+      button = Tooltip(message: tooltip!, child: button);
+    }
 
     if (badge == null) {
       return GestureDetector(onTap: onTap, child: button);

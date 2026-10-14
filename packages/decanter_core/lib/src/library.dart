@@ -92,13 +92,52 @@ class LibraryEntry {
 
 /// A conversation as stored on disk.
 class StoredChat {
-  const StoredChat({this.messages = const <ChatMessage>[], this.savedAt});
+  const StoredChat({
+    this.id = '',
+    this.title = '',
+    this.messages = const <ChatMessage>[],
+    this.createdAt,
+    this.savedAt,
+  });
+
+  /// Unique identifier of this chat thread, or empty for legacy single-chat files.
+  final String id;
+
+  /// Optional custom title for this thread.
+  final String title;
 
   final List<ChatMessage> messages;
+  final DateTime? createdAt;
   final DateTime? savedAt;
 
   bool get isEmpty => messages.isEmpty;
   int get messageCount => messages.length;
+
+  /// A short excerpt from the newest message.
+  String get preview {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final String content = messages[i].content.trim();
+      if (content.isNotEmpty) {
+        return content.length > 80 ? '${content.substring(0, 80)}…' : content;
+      }
+    }
+    return '';
+  }
+
+  StoredChat copyWith({
+    String? id,
+    String? title,
+    List<ChatMessage>? messages,
+    DateTime? createdAt,
+    DateTime? savedAt,
+  }) =>
+      StoredChat(
+        id: id ?? this.id,
+        title: title ?? this.title,
+        messages: messages ?? this.messages,
+        createdAt: createdAt ?? this.createdAt,
+        savedAt: savedAt ?? this.savedAt,
+      );
 }
 
 /// Cards and conversations, kept as plain files under one directory.
@@ -127,6 +166,10 @@ class LibraryStore {
   Directory _cardDirectory(String id) =>
       Directory('${cardsDirectory.path}/$id');
   File _chatFile(String id) => File('${chatsDirectory.path}/$id.json');
+  Directory _characterChatsDirectory(String id) =>
+      Directory('${chatsDirectory.path}/$id');
+  File _threadFile(String characterId, String chatId) =>
+      File('${_characterChatsDirectory(characterId).path}/$chatId.json');
 
   void ensureDirectories() {
     cardsDirectory.createSync(recursive: true);
@@ -276,48 +319,166 @@ class LibraryStore {
     return entry;
   }
 
-  /// Removes a card and its conversation.
+  /// Removes a card and its conversations.
   void delete(String id) {
     final Directory directory = _cardDirectory(id);
     if (directory.existsSync()) directory.deleteSync(recursive: true);
     final File chat = _chatFile(id);
     if (chat.existsSync()) chat.deleteSync();
+    final Directory threadDir = _characterChatsDirectory(id);
+    if (threadDir.existsSync()) threadDir.deleteSync(recursive: true);
   }
 
-  bool hasChat(String id) => _chatFile(id).existsSync();
+  /// Whether any conversation (or a specific thread) exists for this card.
+  bool hasChat(String id, [String? chatId]) {
+    if (chatId != null && chatId.isNotEmpty) {
+      return _threadFile(id, chatId).existsSync() ||
+          (chatId == 'main' && _chatFile(id).existsSync());
+    }
+    if (_chatFile(id).existsSync()) return true;
+    final Directory threadDir = _characterChatsDirectory(id);
+    if (threadDir.existsSync()) {
+      return threadDir.listSync().whereType<File>().any(
+            (File f) => f.path.endsWith('.json'),
+          );
+    }
+    return false;
+  }
 
-  StoredChat loadChat(String id) {
-    final File file = _chatFile(id);
-    if (!file.existsSync()) return const StoredChat();
-    try {
-      final Object? decoded = jsonDecode(file.readAsStringSync());
-      if (decoded is! Map) return const StoredChat();
-      final Map<String, dynamic> map = Map<String, dynamic>.from(decoded);
-      final Object? rawMessages = map['messages'];
-      return StoredChat(
-        messages: <ChatMessage>[
-          if (rawMessages is List)
-            for (final Object? raw in rawMessages)
-              if (raw is Map)
-                ChatMessage.fromJson(Map<String, dynamic>.from(raw)),
-        ],
-        savedAt: map['savedAt'] is String
-            ? DateTime.tryParse(map['savedAt'] as String)
-            : null,
+  /// Lists all conversations stored for [characterId], newest first.
+  List<StoredChat> listChats(String characterId) {
+    ensureDirectories();
+    final Directory threadDir = _characterChatsDirectory(characterId);
+    final List<StoredChat> chats = <StoredChat>[];
+
+    if (threadDir.existsSync()) {
+      for (final FileSystemEntity entity in threadDir.listSync()) {
+        if (entity is! File || !entity.path.endsWith('.json')) continue;
+        final String chatId = entity.path
+            .split(Platform.pathSeparator)
+            .last
+            .replaceAll('.json', '');
+        final StoredChat chat = _parseChatFile(
+          entity,
+          fallbackId: chatId,
+          fallbackTitle: 'Chat',
+        );
+        chats.add(chat);
+      }
+    }
+
+    final File legacy = _chatFile(characterId);
+    if (legacy.existsSync() && chats.isEmpty) {
+      final StoredChat legacyChat = _parseChatFile(
+        legacy,
+        fallbackId: 'main',
+        fallbackTitle: 'Main Chat',
       );
-    } on Object {
-      // A half-written or corrupt chat is not worth failing a launch over; the
-      // card still opens, just with a fresh conversation.
+      chats.add(legacyChat);
+    }
+
+    chats.sort((StoredChat a, StoredChat b) {
+      final DateTime? at = a.savedAt ?? a.createdAt;
+      final DateTime? bt = b.savedAt ?? b.createdAt;
+      if (at != null && bt != null) return bt.compareTo(at);
+      if (at != null) return -1;
+      if (bt != null) return 1;
+      return a.id.compareTo(b.id);
+    });
+
+    return chats;
+  }
+
+  /// Loads a conversation, either by [chatId] or the newest one if omitted.
+  StoredChat loadChat(String characterId, [String? chatId]) {
+    ensureDirectories();
+    if (chatId != null && chatId.isNotEmpty) {
+      final File file = _threadFile(characterId, chatId);
+      if (file.existsSync()) {
+        return _parseChatFile(file, fallbackId: chatId, fallbackTitle: 'Chat');
+      }
+      if (chatId == 'main') {
+        final File legacy = _chatFile(characterId);
+        if (legacy.existsSync()) {
+          return _parseChatFile(
+            legacy,
+            fallbackId: 'main',
+            fallbackTitle: 'Main Chat',
+          );
+        }
+      }
       return const StoredChat();
     }
+
+    final Directory threadDir = _characterChatsDirectory(characterId);
+    if (threadDir.existsSync()) {
+      final List<StoredChat> threads = listChats(characterId);
+      if (threads.isNotEmpty) return threads.first;
+    }
+
+    final File legacy = _chatFile(characterId);
+    if (legacy.existsSync()) {
+      return _parseChatFile(
+        legacy,
+        fallbackId: 'main',
+        fallbackTitle: 'Main Chat',
+      );
+    }
+
+    return const StoredChat();
   }
 
-  void saveChat(String id, List<ChatMessage> messages) {
+  /// Saves a conversation to a thread file, or legacy single chat if only one thread exists.
+  void saveChat(
+    String characterId,
+    List<ChatMessage> messages, {
+    String? chatId,
+    String? title,
+  }) {
     ensureDirectories();
+    final Directory threadDir = _characterChatsDirectory(characterId);
+
+    if (threadDir.existsSync() ||
+        (chatId != null && chatId.isNotEmpty && chatId != 'main')) {
+      threadDir.createSync(recursive: true);
+      final String resolvedId =
+          (chatId == null || chatId.isEmpty) ? 'main' : chatId;
+      final File file = _threadFile(characterId, resolvedId);
+
+      String resolvedTitle = title ?? '';
+      DateTime? createdAt;
+      if (file.existsSync()) {
+        final StoredChat existing = _parseChatFile(file);
+        if (resolvedTitle.isEmpty) resolvedTitle = existing.title;
+        createdAt = existing.createdAt;
+      }
+      if (resolvedTitle.isEmpty) {
+        resolvedTitle = resolvedId == 'main' ? 'Main Chat' : 'Chat';
+      }
+      createdAt ??= DateTime.now();
+
+      _writeAtomically(
+        file,
+        jsonEncode(<String, dynamic>{
+          'version': chatFormatVersion,
+          'id': resolvedId,
+          'title': resolvedTitle,
+          'createdAt': createdAt.toIso8601String(),
+          'savedAt': DateTime.now().toIso8601String(),
+          'messages': <Map<String, dynamic>>[
+            for (final ChatMessage message in messages) message.toJson(),
+          ],
+        }),
+      );
+      return;
+    }
+
     _writeAtomically(
-      _chatFile(id),
+      _chatFile(characterId),
       jsonEncode(<String, dynamic>{
         'version': chatFormatVersion,
+        'id': 'main',
+        'title': title ?? 'Main Chat',
         'savedAt': DateTime.now().toIso8601String(),
         'messages': <Map<String, dynamic>>[
           for (final ChatMessage message in messages) message.toJson(),
@@ -326,9 +487,172 @@ class LibraryStore {
     );
   }
 
-  void clearChat(String id) {
-    final File file = _chatFile(id);
+  /// Creates a new conversation thread for [characterId].
+  StoredChat createNewChat(
+    String characterId, {
+    String? title,
+    List<ChatMessage>? initialMessages,
+  }) {
+    ensureDirectories();
+    _migrateLegacyIfNeeded(characterId);
+    _characterChatsDirectory(characterId).createSync(recursive: true);
+
+    final String chatId = 'chat_${DateTime.now().millisecondsSinceEpoch}';
+    final int existingCount = listChats(characterId).length;
+    final String chatTitle = (title != null && title.trim().isNotEmpty)
+        ? title.trim()
+        : 'Chat ${existingCount + 1}';
+    final DateTime now = DateTime.now();
+    final List<ChatMessage> messages = initialMessages ?? const <ChatMessage>[];
+
+    final StoredChat chat = StoredChat(
+      id: chatId,
+      title: chatTitle,
+      messages: messages,
+      createdAt: now,
+      savedAt: now,
+    );
+
+    _writeAtomically(
+      _threadFile(characterId, chatId),
+      jsonEncode(<String, dynamic>{
+        'version': chatFormatVersion,
+        'id': chatId,
+        'title': chatTitle,
+        'createdAt': now.toIso8601String(),
+        'savedAt': now.toIso8601String(),
+        'messages': <Map<String, dynamic>>[
+          for (final ChatMessage message in messages) message.toJson(),
+        ],
+      }),
+    );
+
+    return chat;
+  }
+
+  /// Branches a conversation at [pruneToIndex] into a new thread.
+  StoredChat forkChat(
+    String characterId,
+    String sourceChatId,
+    int pruneToIndex, {
+    String? newTitle,
+  }) {
+    ensureDirectories();
+    _migrateLegacyIfNeeded(characterId);
+    final StoredChat source = loadChat(characterId, sourceChatId);
+    final int targetEnd = pruneToIndex < source.messages.length
+        ? pruneToIndex + 1
+        : source.messages.length;
+    final List<ChatMessage> branched = source.messages.sublist(0, targetEnd);
+
+    final String title = (newTitle != null && newTitle.trim().isNotEmpty)
+        ? newTitle.trim()
+        : 'Branch from ${source.title.isEmpty ? "Chat" : source.title}';
+
+    return createNewChat(
+      characterId,
+      title: title,
+      initialMessages: branched,
+    );
+  }
+
+  /// Renames an existing chat thread.
+  void renameChat(String characterId, String chatId, String newTitle) {
+    ensureDirectories();
+    _migrateLegacyIfNeeded(characterId);
+    final File file = _threadFile(characterId, chatId);
+    if (!file.existsSync()) return;
+    final StoredChat chat = _parseChatFile(file);
+    final StoredChat updated = chat.copyWith(
+      title: newTitle.trim().isEmpty ? 'Chat' : newTitle.trim(),
+    );
+    _writeAtomically(
+      file,
+      jsonEncode(<String, dynamic>{
+        'version': chatFormatVersion,
+        'id': updated.id,
+        'title': updated.title,
+        'createdAt': (updated.createdAt ?? DateTime.now()).toIso8601String(),
+        'savedAt': (updated.savedAt ?? DateTime.now()).toIso8601String(),
+        'messages': <Map<String, dynamic>>[
+          for (final ChatMessage message in updated.messages) message.toJson(),
+        ],
+      }),
+    );
+  }
+
+  /// Deletes a single chat thread.
+  void deleteChat(String characterId, String chatId) {
+    final File file = _threadFile(characterId, chatId);
     if (file.existsSync()) file.deleteSync();
+    if (chatId == 'main') {
+      final File legacy = _chatFile(characterId);
+      if (legacy.existsSync()) legacy.deleteSync();
+    }
+  }
+
+  /// Clears either a specific conversation or all conversations for [id].
+  void clearChat(String id, [String? chatId]) {
+    if (chatId != null && chatId.isNotEmpty) {
+      deleteChat(id, chatId);
+      return;
+    }
+    final File legacy = _chatFile(id);
+    if (legacy.existsSync()) legacy.deleteSync();
+    final Directory threadDir = _characterChatsDirectory(id);
+    if (threadDir.existsSync()) threadDir.deleteSync(recursive: true);
+  }
+
+  void _migrateLegacyIfNeeded(String characterId) {
+    final File legacy = _chatFile(characterId);
+    if (!legacy.existsSync()) return;
+    final Directory threadDir = _characterChatsDirectory(characterId);
+    threadDir.createSync(recursive: true);
+    final File mainFile = _threadFile(characterId, 'main');
+    if (!mainFile.existsSync()) {
+      legacy.renameSync(mainFile.path);
+    } else {
+      legacy.deleteSync();
+    }
+  }
+
+  StoredChat _parseChatFile(
+    File file, {
+    String fallbackId = '',
+    String fallbackTitle = '',
+  }) {
+    if (!file.existsSync()) return const StoredChat();
+    try {
+      final Object? decoded = jsonDecode(file.readAsStringSync());
+      if (decoded is! Map) return const StoredChat();
+      final Map<String, dynamic> map = Map<String, dynamic>.from(decoded);
+      final Object? rawMessages = map['messages'];
+      final String id = map['id'] is String && (map['id'] as String).isNotEmpty
+          ? map['id'] as String
+          : fallbackId;
+      final String title =
+          map['title'] is String && (map['title'] as String).isNotEmpty
+              ? map['title'] as String
+              : fallbackTitle;
+      return StoredChat(
+        id: id,
+        title: title,
+        messages: <ChatMessage>[
+          if (rawMessages is List)
+            for (final Object? raw in rawMessages)
+              if (raw is Map)
+                ChatMessage.fromJson(Map<String, dynamic>.from(raw)),
+        ],
+        createdAt: map['createdAt'] is String
+            ? DateTime.tryParse(map['createdAt'] as String)
+            : null,
+        savedAt: map['savedAt'] is String
+            ? DateTime.tryParse(map['savedAt'] as String)
+            : null,
+      );
+    } on Object {
+      return const StoredChat();
+    }
   }
 
   /// Writes by way of a temporary file and a rename.

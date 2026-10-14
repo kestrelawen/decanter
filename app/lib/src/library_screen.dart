@@ -252,8 +252,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return ListView.builder(
       padding: const EdgeInsets.only(top: 2, bottom: 4),
       itemCount: _entries.length,
-      itemBuilder: (BuildContext context, int index) =>
-          _row(_entries[index]),
+      itemBuilder: (BuildContext context, int index) => _row(_entries[index]),
     );
   }
 

@@ -194,7 +194,8 @@ class _UpdateScreenState extends State<UpdateScreen> {
                     if (_state.message.isNotEmpty) _statusCard(),
                     if (_state.phase == UpdatePhase.downloading)
                       const SizedBox(height: 12),
-                    if (_state.phase == UpdatePhase.downloading) _progressCard(),
+                    if (_state.phase == UpdatePhase.downloading)
+                      _progressCard(),
                     const SizedBox(height: 14),
                     _actionBar(),
                     const SizedBox(height: 14),
@@ -332,8 +333,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
   }
 
   Widget _actionBar() {
-    final bool busy =
-        _state.phase == UpdatePhase.checking ||
+    final bool busy = _state.phase == UpdatePhase.checking ||
         _state.phase == UpdatePhase.downloading ||
         _state.phase == UpdatePhase.installing;
 
@@ -347,8 +347,8 @@ class _UpdateScreenState extends State<UpdateScreen> {
     final VoidCallback? action = busy
         ? null
         : (_state.phase == UpdatePhase.updateAvailable
-              ? _downloadAndInstall
-              : _check);
+            ? _downloadAndInstall
+            : _check);
 
     return GestureDetector(
       onTap: action,

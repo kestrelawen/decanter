@@ -45,7 +45,10 @@ Future<(LibraryStore, String?)> _openLibrary() async {
     // The root comes from the platform, because only it knows where this app is
     // allowed to write.
     final String root = await const LibraryPlatform().documentsDirectory();
-    return (LibraryStore(Directory('$root/library'))..ensureDirectories(), null);
+    return (
+      LibraryStore(Directory('$root/library'))..ensureDirectories(),
+      null
+    );
   } on Object catch (error) {
     // Failing to open storage is worth saying out loud, but not worth refusing to
     // launch over: the app runs from a temporary directory instead, so the user

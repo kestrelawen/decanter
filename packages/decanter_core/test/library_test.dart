@@ -446,6 +446,117 @@ void main() {
     test('clearing a chat that does not exist is a no-op', () {
       expect(() => store.clearChat('nobody'), returnsNormally);
     });
+
+    test('listChats reflects legacy chat file', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'm.json',
+      );
+      expect(store.listChats(entry.id), isEmpty);
+
+      store.saveChat(entry.id, <ChatMessage>[
+        const ChatMessage(role: ChatRole.assistant, content: 'Legacy hello'),
+      ]);
+
+      final List<StoredChat> chats = store.listChats(entry.id);
+      expect(chats.length, 1);
+      expect(chats.first.id, 'main');
+      expect(chats.first.title, 'Main Chat');
+      expect(chats.first.messages.single.content, 'Legacy hello');
+    });
+
+    test('createNewChat migrates legacy chat and adds new thread', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'm.json',
+      );
+      store.saveChat(entry.id, <ChatMessage>[
+        const ChatMessage(role: ChatRole.assistant, content: 'Legacy msg'),
+      ]);
+
+      final StoredChat newChat = store.createNewChat(
+        entry.id,
+        title: 'Alternate Timeline',
+        initialMessages: <ChatMessage>[
+          const ChatMessage(role: ChatRole.assistant, content: 'New greeting'),
+        ],
+      );
+
+      expect(newChat.title, 'Alternate Timeline');
+      expect(newChat.messages.single.content, 'New greeting');
+
+      final List<StoredChat> chats = store.listChats(entry.id);
+      expect(chats.length, 2);
+
+      final StoredChat loadedLegacy = store.loadChat(entry.id, 'main');
+      expect(loadedLegacy.messages.single.content, 'Legacy msg');
+
+      final StoredChat loadedNew = store.loadChat(entry.id, newChat.id);
+      expect(loadedNew.messages.single.content, 'New greeting');
+    });
+
+    test('forkChat creates a branch at specific message index', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'm.json',
+      );
+      store.saveChat(entry.id, <ChatMessage>[
+        const ChatMessage(role: ChatRole.assistant, content: 'Msg 0'),
+        const ChatMessage(role: ChatRole.user, content: 'Msg 1'),
+        const ChatMessage(role: ChatRole.assistant, content: 'Msg 2'),
+        const ChatMessage(role: ChatRole.user, content: 'Msg 3'),
+      ]);
+
+      final StoredChat branch = store.forkChat(
+        entry.id,
+        'main',
+        1,
+        newTitle: 'Branch from 1',
+      );
+
+      expect(branch.title, 'Branch from 1');
+      expect(branch.messages.length, 2);
+      expect(branch.messages[0].content, 'Msg 0');
+      expect(branch.messages[1].content, 'Msg 1');
+
+      // Original chat remains untouched
+      final StoredChat mainChat = store.loadChat(entry.id, 'main');
+      expect(mainChat.messages.length, 4);
+    });
+
+    test('renameChat and deleteChat manage threads individually', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'm.json',
+      );
+      final StoredChat chat1 = store.createNewChat(entry.id, title: 'Chat One');
+      final StoredChat chat2 = store.createNewChat(entry.id, title: 'Chat Two');
+
+      store.renameChat(entry.id, chat1.id, 'Renamed One');
+      expect(store.loadChat(entry.id, chat1.id).title, 'Renamed One');
+
+      store.deleteChat(entry.id, chat2.id);
+      final List<StoredChat> remaining = store.listChats(entry.id);
+      expect(remaining.map((StoredChat c) => c.id), contains(chat1.id));
+      expect(remaining.map((StoredChat c) => c.id), isNot(contains(chat2.id)));
+    });
+
+    test('clearChat with chatId deletes only specified thread', () {
+      final LibraryEntry entry = store.importCard(
+        bytes: cardBytes(),
+        fileName: 'm.json',
+      );
+      final StoredChat chat1 = store.createNewChat(entry.id, title: 'Chat 1');
+      final StoredChat chat2 = store.createNewChat(entry.id, title: 'Chat 2');
+
+      store.clearChat(entry.id, chat1.id);
+      expect(store.hasChat(entry.id, chat1.id), isFalse);
+      expect(store.hasChat(entry.id, chat2.id), isTrue);
+      expect(store.hasChat(entry.id), isTrue);
+
+      store.clearChat(entry.id);
+      expect(store.hasChat(entry.id), isFalse);
+    });
   });
 
   group('delete', () {

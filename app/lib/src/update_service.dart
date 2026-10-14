@@ -25,7 +25,14 @@ const String appVersion = String.fromEnvironment(
 Version get installedVersion => Version.parse(appVersion);
 
 /// Where an update flow currently is.
-enum UpdatePhase { idle, checking, updateAvailable, downloading, installing, failed }
+enum UpdatePhase {
+  idle,
+  checking,
+  updateAvailable,
+  downloading,
+  installing,
+  failed
+}
 
 /// What the update screen draws.
 class UpdateProgress {
@@ -55,13 +62,14 @@ class UpdateProgress {
     AppRelease? release,
     int? received,
     int? total,
-  }) => UpdateProgress(
-    phase: phase ?? this.phase,
-    message: message ?? this.message,
-    release: release ?? this.release,
-    received: received ?? this.received,
-    total: total ?? this.total,
-  );
+  }) =>
+      UpdateProgress(
+        phase: phase ?? this.phase,
+        message: message ?? this.message,
+        release: release ?? this.release,
+        received: received ?? this.received,
+        total: total ?? this.total,
+      );
 }
 
 /// Checks GitHub for a newer build, downloads it, and hands it to the installer.
@@ -74,9 +82,9 @@ class UpdateService {
     HttpTransport? transport,
     FileDownloader? downloader,
     MethodChannel? channel,
-  }) : _transport = transport,
-       _downloader = downloader,
-       _channel = channel ?? const MethodChannel(updateChannelName);
+  })  : _transport = transport,
+        _downloader = downloader,
+        _channel = channel ?? const MethodChannel(updateChannelName);
 
   final HttpTransport? _transport;
   final FileDownloader? _downloader;
@@ -95,8 +103,8 @@ class UpdateService {
     _owned = null;
   }
 
-  ReleaseClient _clientFor(AppSettings settings) =>
-      ReleaseClient(transport: _effectiveTransport, token: settings.updateToken);
+  ReleaseClient _clientFor(AppSettings settings) => ReleaseClient(
+      transport: _effectiveTransport, token: settings.updateToken);
 
   /// Asks GitHub what the latest release is.
   Future<UpdateCheck> checkForUpdate(AppSettings settings) =>

@@ -122,61 +122,62 @@ class AppSettings {
     int? contextBudget,
     String? updateRepo,
     String? updateToken,
-  }) => AppSettings(
-    baseUrl: baseUrl ?? this.baseUrl,
-    apiKey: apiKey ?? this.apiKey,
-    model: model ?? this.model,
-    temperature: temperature ?? this.temperature,
-    maxTokens: clearMaxTokens ? null : (maxTokens ?? this.maxTokens),
-    personaName: personaName ?? this.personaName,
-    personaDescription: personaDescription ?? this.personaDescription,
-    authorNote: authorNote ?? this.authorNote,
-    contextBudget: contextBudget ?? this.contextBudget,
-    updateRepo: updateRepo ?? this.updateRepo,
-    updateToken: updateToken ?? this.updateToken,
-  );
+  }) =>
+      AppSettings(
+        baseUrl: baseUrl ?? this.baseUrl,
+        apiKey: apiKey ?? this.apiKey,
+        model: model ?? this.model,
+        temperature: temperature ?? this.temperature,
+        maxTokens: clearMaxTokens ? null : (maxTokens ?? this.maxTokens),
+        personaName: personaName ?? this.personaName,
+        personaDescription: personaDescription ?? this.personaDescription,
+        authorNote: authorNote ?? this.authorNote,
+        contextBudget: contextBudget ?? this.contextBudget,
+        updateRepo: updateRepo ?? this.updateRepo,
+        updateToken: updateToken ?? this.updateToken,
+      );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'baseUrl': baseUrl,
-    'apiKey': apiKey,
-    'model': model,
-    'temperature': temperature,
-    if (maxTokens != null) 'maxTokens': maxTokens,
-    'personaName': personaName,
-    'personaDescription': personaDescription,
-    'authorNote': authorNote,
-    'contextBudget': contextBudget,
-    'updateRepo': updateRepo,
-    'updateToken': updateToken,
-  };
+        'baseUrl': baseUrl,
+        'apiKey': apiKey,
+        'model': model,
+        'temperature': temperature,
+        if (maxTokens != null) 'maxTokens': maxTokens,
+        'personaName': personaName,
+        'personaDescription': personaDescription,
+        'authorNote': authorNote,
+        'contextBudget': contextBudget,
+        'updateRepo': updateRepo,
+        'updateToken': updateToken,
+      };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-    baseUrl: json['baseUrl'] is String
-        ? json['baseUrl'] as String
-        : 'https://api.openai.com/v1',
-    apiKey: json['apiKey'] is String ? json['apiKey'] as String : '',
-    model: json['model'] is String ? json['model'] as String : 'gpt-4o-mini',
-    temperature: json['temperature'] is num
-        ? (json['temperature'] as num).toDouble()
-        : 0.9,
-    maxTokens: json['maxTokens'] is int ? json['maxTokens'] as int : null,
-    personaName: json['personaName'] is String
-        ? json['personaName'] as String
-        : 'You',
-    personaDescription: json['personaDescription'] is String
-        ? json['personaDescription'] as String
-        : '',
-    authorNote: json['authorNote'] is String ? json['authorNote'] as String : '',
-    contextBudget: json['contextBudget'] is int
-        ? json['contextBudget'] as int
-        : 4096,
-    updateRepo: json['updateRepo'] is String
-        ? json['updateRepo'] as String
-        : 'kestrelawen/decanter',
-    updateToken: json['updateToken'] is String
-        ? json['updateToken'] as String
-        : '',
-  );
+        baseUrl: json['baseUrl'] is String
+            ? json['baseUrl'] as String
+            : 'https://api.openai.com/v1',
+        apiKey: json['apiKey'] is String ? json['apiKey'] as String : '',
+        model:
+            json['model'] is String ? json['model'] as String : 'gpt-4o-mini',
+        temperature: json['temperature'] is num
+            ? (json['temperature'] as num).toDouble()
+            : 0.9,
+        maxTokens: json['maxTokens'] is int ? json['maxTokens'] as int : null,
+        personaName: json['personaName'] is String
+            ? json['personaName'] as String
+            : 'You',
+        personaDescription: json['personaDescription'] is String
+            ? json['personaDescription'] as String
+            : '',
+        authorNote:
+            json['authorNote'] is String ? json['authorNote'] as String : '',
+        contextBudget:
+            json['contextBudget'] is int ? json['contextBudget'] as int : 4096,
+        updateRepo: json['updateRepo'] is String
+            ? json['updateRepo'] as String
+            : 'kestrelawen/decanter',
+        updateToken:
+            json['updateToken'] is String ? json['updateToken'] as String : '',
+      );
 }
 
 /// Loads and saves [AppSettings].
