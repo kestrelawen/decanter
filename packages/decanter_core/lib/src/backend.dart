@@ -52,13 +52,38 @@ class ChatRequest {
         if (frequencyPenalty != null) 'frequency_penalty': frequencyPenalty,
         if (presencePenalty != null) 'presence_penalty': presencePenalty,
         if (stop != null && stop!.isNotEmpty) 'stop': stop,
+        if (stream) 'stream_options': <String, dynamic>{'include_usage': true},
         ...extra,
       };
 }
 
+/// Token usage metadata returned by OpenAI-compatible backends.
+class ChatUsage {
+  const ChatUsage({
+    this.promptTokens,
+    this.completionTokens,
+    this.totalTokens,
+    this.cachedTokens,
+  });
+
+  final int? promptTokens;
+  final int? completionTokens;
+  final int? totalTokens;
+  final int? cachedTokens;
+
+  @override
+  String toString() =>
+      'ChatUsage(prompt: $promptTokens, completion: $completionTokens, total: $totalTokens, cached: $cachedTokens)';
+}
+
 /// One increment of a streamed reply.
 class ChatChunk {
-  const ChatChunk({this.delta = '', this.finishReason, this.done = false});
+  const ChatChunk({
+    this.delta = '',
+    this.finishReason,
+    this.done = false,
+    this.usage,
+  });
 
   /// Text added by this chunk. May be empty on a role-only or keep-alive chunk.
   final String delta;
@@ -68,11 +93,15 @@ class ChatChunk {
   /// True on the terminal chunk.
   final bool done;
 
+  /// Token usage reported by the provider (typically on the terminal chunk).
+  final ChatUsage? usage;
+
   bool get isEmpty => delta.isEmpty;
 
   @override
   String toString() => 'ChatChunk(${delta.length} chars${done ? ", done" : ""}'
-      '${finishReason == null ? "" : ", $finishReason"})';
+      '${finishReason == null ? "" : ", $finishReason"}'
+      '${usage == null ? "" : ", $usage"})';
 }
 
 abstract class ChatBackend {
@@ -343,10 +372,13 @@ class OpenAiCompatibleBackend implements ChatBackend {
         final Map<String, dynamic>? json = _tryDecode(payload);
         if (json == null) continue;
 
-        final ChatChunk? chunk = _chunkFrom(json);
+        final ChatUsage? usage = _usageFrom(json);
+        final ChatChunk? chunk = _chunkFrom(json, usage: usage);
         if (chunk != null) {
           receivedAnyChunk = true;
           yield chunk;
+        } else if (usage != null) {
+          yield ChatChunk(usage: usage);
         }
       }
     } on Object catch (error) {
@@ -455,6 +487,7 @@ class OpenAiCompatibleBackend implements ChatBackend {
         body: body,
       );
     }
+    final ChatUsage? usage = _usageFrom(json);
     final Object? choices = json['choices'];
     if (choices is List && choices.isNotEmpty) {
       final Object? first = choices.first;
@@ -465,6 +498,7 @@ class OpenAiCompatibleBackend implements ChatBackend {
             delta: message['content'] as String,
             finishReason: first['finish_reason'] as String?,
             done: true,
+            usage: usage,
           );
         }
         if (first['text'] is String) {
@@ -472,28 +506,37 @@ class OpenAiCompatibleBackend implements ChatBackend {
             delta: first['text'] as String,
             finishReason: first['finish_reason'] as String?,
             done: true,
+            usage: usage,
           );
         }
       }
     }
-    return const ChatChunk(done: true);
+    return ChatChunk(done: true, usage: usage);
   }
 
-  ChatChunk? _chunkFrom(Map<String, dynamic> json) {
+  ChatChunk? _chunkFrom(Map<String, dynamic> json, {ChatUsage? usage}) {
     final Object? choices = json['choices'];
-    if (choices is! List || choices.isEmpty) return null;
+    if (choices is! List || choices.isEmpty) {
+      return usage == null ? null : ChatChunk(usage: usage);
+    }
 
     final Object? first = choices.first;
-    if (first is! Map) return null;
+    if (first is! Map) {
+      return usage == null ? null : ChatChunk(usage: usage);
+    }
 
     final String? finishReason = first['finish_reason'] as String?;
     final Object? delta = first['delta'];
 
     // A chunk may carry only a finish_reason, with no content at all.
     if (delta is! Map) {
-      return finishReason == null
+      return finishReason == null && usage == null
           ? null
-          : ChatChunk(finishReason: finishReason, done: true);
+          : ChatChunk(
+              finishReason: finishReason,
+              done: finishReason != null,
+              usage: usage,
+            );
     }
 
     final Object? content = delta['content'];
@@ -505,6 +548,29 @@ class OpenAiCompatibleBackend implements ChatBackend {
       delta: text,
       finishReason: finishReason,
       done: finishReason != null,
+      usage: usage,
+    );
+  }
+
+  static ChatUsage? _usageFrom(Map<String, dynamic> json) {
+    final Object? raw = json['usage'];
+    if (raw is! Map) return null;
+    final int? pt =
+        raw['prompt_tokens'] is int ? raw['prompt_tokens'] as int : null;
+    final int? ct = raw['completion_tokens'] is int
+        ? raw['completion_tokens'] as int
+        : null;
+    final int? tt =
+        raw['total_tokens'] is int ? raw['total_tokens'] as int : null;
+    final Object? details = raw['prompt_tokens_details'];
+    final int? cached = details is Map && details['cached_tokens'] is int
+        ? details['cached_tokens'] as int
+        : null;
+    return ChatUsage(
+      promptTokens: pt,
+      completionTokens: ct,
+      totalTokens: tt,
+      cachedTokens: cached,
     );
   }
 

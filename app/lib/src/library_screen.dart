@@ -37,6 +37,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String? _notice;
   late String? _error = widget.startupError;
   bool _importing = false;
+  bool _isGrid = true;
 
   @override
   void initState() {
@@ -237,6 +238,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
             GlassIconButton(
+              icon: _isGrid ? Icons.view_list_rounded : Icons.grid_view_rounded,
+              tooltip: _isGrid ? 'List view' : 'Grid view',
+              onTap: () => setState(() => _isGrid = !_isGrid),
+            ),
+            const SizedBox(width: 8),
+            GlassIconButton(
               icon: Icons.tune_rounded,
               onTap: () => widget.onOpenSettings(),
             ),
@@ -249,10 +256,208 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _body() {
     if (_entries.isEmpty) return _emptyState();
 
-    return ListView.builder(
-      padding: const EdgeInsets.only(top: 2, bottom: 4),
-      itemCount: _entries.length,
-      itemBuilder: (BuildContext context, int index) => _row(_entries[index]),
+    return ScrollConfiguration(
+      behavior: const ScrollBehavior().copyWith(overscroll: false),
+      child: _isGrid
+          ? GridView.builder(
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.only(top: 2, bottom: 4),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 0.70,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: _entries.length,
+              itemBuilder: (BuildContext context, int index) =>
+                  _cardGridItem(_entries[index]),
+            )
+          : ListView.builder(
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.only(top: 2, bottom: 4),
+              itemCount: _entries.length,
+              itemBuilder: (BuildContext context, int index) =>
+                  _row(_entries[index]),
+            ),
+    );
+  }
+
+  Widget _cardGridItem(LibraryEntry entry) {
+    final bool hasChat = widget.store.hasChat(entry.id);
+    final File? picture = widget.store.imageFile(entry.id);
+
+    return GestureDetector(
+      onTap: () => _open(entry),
+      onLongPress: () => _confirmDelete(entry),
+      child: GlassPanel(
+        radius: 20,
+        padding: EdgeInsets.zero,
+        tintStrength: 0.9,
+        shadow: true,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              // Character art or monogram fallback
+              if (picture != null)
+                Image.file(
+                  picture,
+                  fit: BoxFit.cover,
+                  errorBuilder: (BuildContext context, Object error,
+                          StackTrace? stackTrace) =>
+                      _monogramFull(entry),
+                )
+              else
+                _monogramFull(entry),
+
+              // Gradient Scrim for readable text
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: <Color>[
+                        Colors.transparent,
+                        const Color.fromRGBO(0, 0, 0, 0.15),
+                        const Color.fromRGBO(0, 0, 0, 0.88),
+                      ],
+                      stops: const <double>[0.35, 0.65, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Top action bar (Delete & Continue badge)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: GestureDetector(
+                  onTap: () => _confirmDelete(entry),
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(0, 0, 0, 0.45),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.delete_outline_rounded,
+                      size: 15,
+                      color: Glass.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+
+              if (hasChat)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 7, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(245, 180, 80, 0.92),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'CONTINUE',
+                      style: TextStyle(
+                        color: Color.fromRGBO(30, 18, 12, 1),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Bottom info area
+              Positioned(
+                left: 10,
+                right: 10,
+                bottom: 10,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Glass.textPrimary,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        shadows: <Shadow>[
+                          Shadow(
+                            color: Colors.black,
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      <String>[
+                        if (entry.creator.trim().isNotEmpty) entry.creator,
+                        if (entry.loreCount > 0) '${entry.loreCount} lore',
+                        if (entry.hasAlternateGreetings)
+                          '${entry.greetingCount} greetings',
+                      ].join('  ·  '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Glass.textSecondary,
+                        fontSize: 10,
+                        shadows: <Shadow>[
+                          Shadow(
+                            color: Colors.black,
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _monogramFull(LibraryEntry entry) {
+    final String initials = entry.name
+        .split(RegExp(r'\s+'))
+        .where((String word) => word.isNotEmpty)
+        .take(2)
+        .map((String word) => word.substring(0, 1).toUpperCase())
+        .join();
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color.fromRGBO(40, 30, 26, 1),
+            Color.fromRGBO(20, 14, 12, 1),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initials.isEmpty ? '?' : initials,
+          style: const TextStyle(
+            color: Glass.textFaint,
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
     );
   }
 

@@ -297,7 +297,8 @@ class PromptAssembler {
     final messages = <ChatMessage>[
       for (final block in systemBlocks)
         ChatMessage(role: block.role, content: block.content),
-      ...kept,
+      for (final message in kept)
+        message.copyWith(content: expander.expand(message.content)),
     ];
 
     for (final injection in depthInjections) {

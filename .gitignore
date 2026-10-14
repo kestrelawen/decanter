@@ -15,6 +15,7 @@ app/android/app/release/
 local.properties
 *.iml
 *.jks
+!app/android/app/release.jks
 *.keystore
 key.properties
 

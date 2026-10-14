@@ -173,6 +173,31 @@ void main() {
         contains('Hello Mara, meet Seraphina.'),
       );
     });
+
+    test('history messages have their macros expanded', () {
+      final prompt = const PromptAssembler().assemble(
+        card: fullCard(),
+        userName: 'Mara',
+        history: <ChatMessage>[
+          ChatMessage(
+            role: ChatRole.assistant,
+            content: '*{{char}} looks at {{user}}.*',
+          ),
+          ChatMessage(
+            role: ChatRole.user,
+            content: 'Hello {{char}}, I am {{user}}.',
+          ),
+        ],
+      );
+      expect(
+        prompt.messages.map((m) => m.content),
+        contains('*Seraphina looks at Mara.*'),
+      );
+      expect(
+        prompt.messages.map((m) => m.content),
+        contains('Hello Seraphina, I am Mara.'),
+      );
+    });
   });
 
   group('history', () {

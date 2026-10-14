@@ -344,9 +344,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _header() {
-    final WorldInfoScanResult? scan = _chat.scan;
     final int greetingCount = widget.card.greetings.length;
-    final int active = scan?.activated.length ?? 0;
 
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
@@ -389,12 +387,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 2),
                     Text(
                       <String>[
-                        '${scan?.tokenCost ?? 0} tok',
-                        '$active lore',
+                        widget.settings.model,
                         if (greetingCount > 1)
-                          'greeting ${_greetingIndex + 1}/$greetingCount',
+                          'greeting ${_greetingIndex + 1}/$greetingCount'
+                        else
+                          '${_chat.history.length} msgs',
                         if (!widget.settings.isConfigured) 'no backend',
                       ].join('  ·  '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Glass.textFaint,
                         fontSize: 10.5,
@@ -405,31 +406,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            _IconAction(
+              icon: Icons.speed_rounded,
+              tooltip: 'Telemetry & Stats',
+              onTap: _openSessionStatsSheet,
+            ),
             if (widget.store != null && widget.entryId != null) ...<Widget>[
+              const SizedBox(width: 6),
               _IconAction(
                 icon: Icons.forum_outlined,
                 tooltip: 'Chats',
                 onTap: _openChatsSheet,
               ),
-              const SizedBox(width: 6),
             ],
-            _IconAction(
-              icon: Icons.auto_awesome_motion_outlined,
-              tooltip: 'Lorebook',
-              onTap: _openLoreSheet,
-              badge: active > 0 ? '$active' : null,
-            ),
             const SizedBox(width: 6),
             _IconAction(
-              icon: Icons.tune_rounded,
-              tooltip: 'Settings',
-              onTap: widget.onOpenSettings,
-            ),
-            const SizedBox(width: 6),
-            _IconAction(
-              icon: Icons.refresh_rounded,
-              tooltip: 'Restart chat',
-              onTap: _startFresh,
+              icon: Icons.more_vert_rounded,
+              tooltip: 'More options',
+              onTap: _openMoreMenuSheet,
             ),
           ],
         ),
@@ -452,15 +446,15 @@ class _HomeScreenState extends State<HomeScreen> {
       tintStrength: 1.3,
       shadow: false,
       child: SizedBox(
-        width: 42,
-        height: 42,
+        width: 38,
+        height: 38,
         child: Center(
           child: Text(
             initials.isEmpty ? '?' : initials,
             style: const TextStyle(
               color: Glass.textPrimary,
               fontWeight: FontWeight.w600,
-              fontSize: 15,
+              fontSize: 14,
             ),
           ),
         ),
@@ -476,43 +470,47 @@ class _HomeScreenState extends State<HomeScreen> {
         ? 1
         : 0;
 
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.only(top: 2, bottom: 4),
-      itemCount: history.length + extra,
-      itemBuilder: (BuildContext context, int index) {
-        if (index >= history.length) {
-          return KeyedSubtree(
-            key: const ValueKey<String>('streaming'),
-            child: _bubble(
-              ChatMessage(
-                role: ChatRole.assistant,
-                content: _chat.streamingText,
+    return ScrollConfiguration(
+      behavior: const ScrollBehavior().copyWith(overscroll: false),
+      child: ListView.builder(
+        physics: const ClampingScrollPhysics(),
+        controller: _scroll,
+        padding: const EdgeInsets.only(top: 2, bottom: 4),
+        itemCount: history.length + extra,
+        itemBuilder: (BuildContext context, int index) {
+          if (index >= history.length) {
+            return KeyedSubtree(
+              key: const ValueKey<String>('streaming'),
+              child: _bubble(
+                ChatMessage(
+                  role: ChatRole.assistant,
+                  content: _chat.streamingText,
+                ),
+                streaming: true,
               ),
-              streaming: true,
+            );
+          }
+
+          final bool isRegeneratingThis =
+              _chat.isStreaming && _chat.regeneratingIndex == index;
+          final bool isContinuingThis =
+              _chat.isStreaming && _chat.continuingIndex == index;
+          final ChatMessage message = isRegeneratingThis
+              ? history[index].copyWith(content: _chat.streamingText)
+              : (isContinuingThis
+                  ? history[index].withAppendedContent(_chat.streamingText)
+                  : history[index]);
+
+          return KeyedSubtree(
+            key: ValueKey<int>(index),
+            child: _bubble(
+              message,
+              messageIndex: index,
+              streaming: isRegeneratingThis || isContinuingThis,
             ),
           );
-        }
-
-        final bool isRegeneratingThis =
-            _chat.isStreaming && _chat.regeneratingIndex == index;
-        final bool isContinuingThis =
-            _chat.isStreaming && _chat.continuingIndex == index;
-        final ChatMessage message = isRegeneratingThis
-            ? history[index].copyWith(content: _chat.streamingText)
-            : (isContinuingThis
-                ? history[index].withAppendedContent(_chat.streamingText)
-                : history[index]);
-
-        return KeyedSubtree(
-          key: ValueKey<int>(index),
-          child: _bubble(
-            message,
-            messageIndex: index,
-            streaming: isRegeneratingThis || isContinuingThis,
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -530,7 +528,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 8),
           child: Text(
-            message.content,
+            _chat.expandMacros(message.content),
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Glass.textFaint,
@@ -577,7 +575,7 @@ class _HomeScreenState extends State<HomeScreen> {
               text.isEmpty && streaming
                   ? const _ThinkingDots()
                   : ChatRichContent(
-                      text: text,
+                      text: _chat.expandMacros(text),
                       isUser: mine,
                     ),
               if (showSwipeControls) ...<Widget>[
@@ -889,108 +887,109 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Glass.tint(0.3),
-                      borderRadius: BorderRadius.circular(99),
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Glass.tint(0.3),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  isUser
-                      ? 'USER MESSAGE'
-                      : (isAssistant
-                          ? '${widget.card.name.toUpperCase()} · ${message.hasSwipes ? 'SWIPE ${message.swipeIndex + 1}/${message.swipes.length}' : 'REPLY'}'
-                          : 'NARRATOR NOTE'),
-                  style: const TextStyle(
-                    color: Glass.textFaint,
-                    fontSize: 10.5,
-                    letterSpacing: 1.5,
-                    fontWeight: FontWeight.w600,
+                  const SizedBox(height: 12),
+                  Text(
+                    isUser
+                        ? 'USER MESSAGE'
+                        : (isAssistant
+                            ? '${widget.card.name.toUpperCase()} · ${message.hasSwipes ? 'SWIPE ${message.swipeIndex + 1}/${message.swipes.length}' : 'REPLY'}'
+                            : 'NARRATOR NOTE'),
+                    style: const TextStyle(
+                      color: Glass.textFaint,
+                      fontSize: 10.5,
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                _actionTile(
-                  icon: Icons.edit_outlined,
-                  label: 'Edit message',
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _showEditDialog(messageIndex);
-                  },
-                ),
-                _actionTile(
-                  icon: Icons.copy_rounded,
-                  label: 'Copy text',
-                  onTap: () async {
-                    Navigator.of(sheetContext).pop();
-                    await Clipboard.setData(
-                      ClipboardData(text: message.content),
-                    );
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Copied to clipboard'),
-                          duration: Duration(seconds: 1),
-                        ),
+                  const SizedBox(height: 12),
+                  _actionTile(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit message',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _showEditDialog(messageIndex);
+                    },
+                  ),
+                  _actionTile(
+                    icon: Icons.copy_rounded,
+                    label: 'Copy text',
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await Clipboard.setData(
+                        ClipboardData(text: message.content),
                       );
-                    }
-                  },
-                ),
-                if (isAssistant && !_chat.isStreaming) ...<Widget>[
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Copied to clipboard'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  if (isAssistant && !_chat.isStreaming) ...<Widget>[
+                    _actionTile(
+                      icon: Icons.fast_forward_rounded,
+                      label: 'Continue writing',
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _chat.continueGeneration(messageIndex: messageIndex);
+                      },
+                    ),
+                    _actionTile(
+                      icon: Icons.sync_rounded,
+                      label: 'Regenerate (new swipe)',
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _chat.regenerate(messageIndex: messageIndex);
+                      },
+                    ),
+                  ],
+                  if (widget.store != null &&
+                      widget.entryId != null) ...<Widget>[
+                    _actionTile(
+                      icon: Icons.fork_right_rounded,
+                      label: 'Branch conversation from here',
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _branchFromMessage(messageIndex);
+                      },
+                    ),
+                  ],
                   _actionTile(
-                    icon: Icons.fast_forward_rounded,
-                    label: 'Continue writing',
+                    icon: Icons.content_cut_rounded,
+                    label: 'Prune from here to end',
+                    color: const Color.fromRGBO(240, 140, 140, 1),
                     onTap: () {
                       Navigator.of(sheetContext).pop();
-                      _chat.continueGeneration(messageIndex: messageIndex);
+                      _confirmPrune(messageIndex);
                     },
                   ),
                   _actionTile(
-                    icon: Icons.sync_rounded,
-                    label: 'Regenerate (new swipe)',
+                    icon: Icons.delete_outline_rounded,
+                    label: 'Delete message',
+                    color: const Color.fromRGBO(240, 140, 140, 1),
                     onTap: () {
                       Navigator.of(sheetContext).pop();
-                      _chat.regenerate(messageIndex: messageIndex);
+                      _chat.deleteMessage(messageIndex);
                     },
                   ),
                 ],
-                if (widget.store != null && widget.entryId != null) ...<Widget>[
-                  _actionTile(
-                    icon: Icons.fork_right_rounded,
-                    label: 'Branch conversation from here',
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      _branchFromMessage(messageIndex);
-                    },
-                  ),
-                ],
-                _actionTile(
-                  icon: Icons.content_cut_rounded,
-                  label: 'Prune from here to end',
-                  color: const Color.fromRGBO(240, 140, 140, 1),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _confirmPrune(messageIndex);
-                  },
-                ),
-                _actionTile(
-                  icon: Icons.delete_outline_rounded,
-                  label: 'Delete message',
-                  color: const Color.fromRGBO(240, 140, 140, 1),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _chat.deleteMessage(messageIndex);
-                  },
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      );
+        );
       },
     );
   }
@@ -1704,12 +1703,156 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- lore sheet ---------------------------------------------------------
+  // --- more options menu --------------------------------------------------
 
-  /// The lorebook readout used to sit permanently along the bottom, taking
-  /// vertical space from the conversation it was describing. It now lives behind
-  /// the header button: one tap away, and out of the way.
-  void _openLoreSheet() {
+  void _openMoreMenuSheet() {
+    final int activeLore = _chat.scan?.activated.length ?? 0;
+    final String activePersona = widget.settings.activePersona.name;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+          child: GlassPanel(
+            radius: 28,
+            blur: 32,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+            tintStrength: 1.4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Glass.tint(0.35),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _menuOption(
+                  icon: Icons.auto_awesome_motion_outlined,
+                  title: 'Lorebook Inspector',
+                  subtitle: activeLore > 0
+                      ? '$activeLore active entries'
+                      : 'Browse entries & matches',
+                  badge: activeLore > 0 ? '$activeLore' : null,
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _openLoreSheet();
+                  },
+                ),
+                _menuOption(
+                  icon: Icons.person_pin_rounded,
+                  title: 'Switch Persona',
+                  subtitle: 'Active: $activePersona',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _openPersonaSwitchSheet();
+                  },
+                ),
+                _menuOption(
+                  icon: Icons.tune_rounded,
+                  title: 'Settings',
+                  subtitle:
+                      '${widget.settings.model}  ·  ${widget.settings.baseUrl}',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    widget.onOpenSettings();
+                  },
+                ),
+                _menuOption(
+                  icon: Icons.refresh_rounded,
+                  title: 'Restart Chat',
+                  subtitle: 'Start over from opening greeting',
+                  danger: true,
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _startFresh();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _menuOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    String? badge,
+    bool danger = false,
+  }) {
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      leading: GlassPanel(
+        radius: 999,
+        blur: 10,
+        padding: const EdgeInsets.all(8),
+        tintStrength: danger ? 0.7 : 1.1,
+        shadow: false,
+        child: Icon(
+          icon,
+          size: 18,
+          color:
+              danger ? const Color.fromRGBO(240, 96, 96, 1) : Glass.textPrimary,
+        ),
+      ),
+      title: Row(
+        children: <Widget>[
+          Text(
+            title,
+            style: TextStyle(
+              color: danger
+                  ? const Color.fromRGBO(240, 96, 96, 1)
+                  : Glass.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (badge != null) ...<Widget>[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.85),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                badge,
+                style: const TextStyle(
+                  color: Color.fromRGBO(30, 18, 12, 1),
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(
+          color: Glass.textFaint,
+          fontSize: 11,
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+
+  // --- session stats & telemetry sheet ------------------------------------
+
+  void _openSessionStatsSheet() {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1717,14 +1860,25 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (BuildContext sheetContext) {
         final WorldInfoScanResult? scan = _chat.scan;
         final AssembledPrompt? prompt = _chat.lastPrompt;
+        final int contextCost = prompt?.tokenCost ?? scan?.tokenCost ?? 0;
+        final int budget = widget.settings.contextBudget;
+        final double? speed = _chat.lastTokensPerSecond;
+        final Duration? duration = _chat.lastTurnDuration;
+        final int outputTokens = _chat.lastTurnOutputTokens;
+        final int? promptTokens = _chat.lastPromptTokens;
+        final int? cachedTokens = _chat.lastCachedTokens;
+        final double percentUsed =
+            budget > 0 ? (contextCost / budget).clamp(0.0, 1.0) : 0.0;
+        final int activeLore = scan?.activated.length ?? 0;
+        final int trimmedCount = prompt?.droppedForBudget.length ?? 0;
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
           child: GlassPanel(
-            radius: 30,
+            radius: 28,
             blur: 34,
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
-            tintStrength: 1.5,
+            tintStrength: 1.45,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1732,7 +1886,316 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   Center(
                     child: Container(
-                      width: 40,
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Glass.tint(0.35),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: <Widget>[
+                      const Icon(Icons.speed_rounded,
+                          size: 16, color: Glass.textSecondary),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'SESSION TELEMETRY & STATS',
+                        style: TextStyle(
+                          color: Glass.textPrimary,
+                          fontSize: 11.5,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        widget.settings.model,
+                        style: const TextStyle(
+                          color: Glass.textFaint,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Metrics Row: Speed & Cache
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: GlassPanel(
+                          radius: 16,
+                          padding: const EdgeInsets.all(12),
+                          tintStrength: 0.9,
+                          shadow: false,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              const Text(
+                                'GENERATION SPEED',
+                                style: TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 9.5,
+                                  letterSpacing: 1.1,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                speed != null
+                                    ? '${speed.toStringAsFixed(1)} tok/s'
+                                    : '--',
+                                style: const TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                duration != null
+                                    ? '${(duration.inMilliseconds / 1000).toStringAsFixed(1)}s  ·  $outputTokens tok'
+                                    : 'Awaiting turn',
+                                style: const TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: GlassPanel(
+                          radius: 16,
+                          padding: const EdgeInsets.all(12),
+                          tintStrength: 0.9,
+                          shadow: false,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              const Text(
+                                'CACHE HIT',
+                                style: TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 9.5,
+                                  letterSpacing: 1.1,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                cachedTokens != null
+                                    ? '$cachedTokens tok'
+                                    : (promptTokens != null ? '0 tok' : '--'),
+                                style: const TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Prompt: ${promptTokens ?? contextCost} tok',
+                                style: const TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Context Window & Budget bar
+                  GlassPanel(
+                    radius: 18,
+                    padding: const EdgeInsets.all(14),
+                    tintStrength: 0.9,
+                    shadow: false,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'CONTEXT SIZE',
+                              style: TextStyle(
+                                color: Glass.textFaint,
+                                fontSize: 9.5,
+                                letterSpacing: 1.1,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '$contextCost / ${budget > 0 ? '$budget tok' : '∞'}',
+                              style: const TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (budget > 0) ...<Widget>[
+                              const SizedBox(width: 4),
+                              Text(
+                                '(${(percentUsed * 100).toStringAsFixed(0)}%)',
+                                style: const TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: SizedBox(
+                            height: 6,
+                            child: LinearProgressIndicator(
+                              value: budget > 0 ? percentUsed : 0.05,
+                              backgroundColor: Glass.tint(0.12),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                percentUsed > 0.85
+                                    ? const Color.fromRGBO(240, 110, 80, 1)
+                                    : Glass.tint(0.85),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          <String>[
+                            '${_chat.history.length} messages in history',
+                            if (trimmedCount > 0)
+                              '$trimmedCount dropped for budget',
+                          ].join('  ·  '),
+                          style: const TextStyle(
+                            color: Glass.textFaint,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Lorebook Summary with shortcut
+                  GlassPanel(
+                    radius: 18,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                    tintStrength: 0.9,
+                    shadow: false,
+                    child: Row(
+                      children: <Widget>[
+                        const Icon(
+                          Icons.auto_awesome_motion_outlined,
+                          size: 20,
+                          color: Glass.textSecondary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                '$activeLore lore entries active',
+                                style: const TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                '${scan?.tokenCost ?? 0} tokens injected into prompt',
+                                style: const TextStyle(
+                                  color: Glass.textFaint,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.of(sheetContext).pop();
+                            _openLoreSheet();
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Glass.tint(0.18),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Text(
+                                  'INSPECT',
+                                  style: TextStyle(
+                                    color: Glass.textPrimary,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                                SizedBox(width: 4),
+                                Icon(Icons.arrow_forward_ios_rounded,
+                                    size: 10, color: Glass.textFaint),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // --- persona switch sheet -----------------------------------------------
+
+  void _openPersonaSwitchSheet() {
+    final List<PersonaProfile> personas = widget.settings.personas.isNotEmpty
+        ? widget.settings.personas
+        : <PersonaProfile>[widget.settings.activePersona];
+    final String activeId = widget.settings.activePersonaId;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+          child: GlassPanel(
+            radius: 28,
+            blur: 34,
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            tintStrength: 1.45,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 38,
                       height: 4,
                       decoration: BoxDecoration(
                         color: Glass.tint(0.35),
@@ -1742,7 +2205,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   const Text(
-                    'LOREBOOK',
+                    'SWITCH PERSONA',
                     style: TextStyle(
                       color: Glass.textPrimary,
                       fontSize: 12,
@@ -1751,63 +2214,547 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    scan == null
-                        ? 'This card has no lorebook.'
-                        : '${scan.activated.length} active  ·  '
-                            '${scan.tokenCost} tok'
-                            '${scan.excludedByBudget.isEmpty ? '' : '  ·  ${scan.excludedByBudget.length} over budget'}',
-                    style: const TextStyle(
+                  const Text(
+                    'Select who you are in this conversation. {{user}} expands with this persona.',
+                    style: TextStyle(
                       color: Glass.textFaint,
                       fontSize: 11,
                     ),
                   ),
                   const SizedBox(height: 14),
-                  if (scan != null && scan.activated.isEmpty)
-                    const Text(
-                      'Nothing activated yet. Keys are matched against the '
-                      'conversation, so entries fire once something relevant is '
-                      'said.',
-                      style: TextStyle(
-                        color: Glass.textFaint,
-                        fontSize: 12,
-                        height: 1.4,
-                      ),
-                    ),
-                  for (final WorldInfoEntry entry
-                      in scan?.activated ?? const <WorldInfoEntry>[])
-                    _loreRow(entry),
-                  if (prompt != null) ...<Widget>[
-                    const SizedBox(height: 16),
-                    const Text(
-                      'LAST PROMPT',
-                      style: TextStyle(
-                        color: Glass.textPrimary,
-                        fontSize: 12,
-                        letterSpacing: 1.6,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${prompt.messages.length} messages  ·  '
-                      '${prompt.tokenCost} tok'
-                      '${prompt.droppedForBudget.isEmpty ? '' : '  ·  ${prompt.droppedForBudget.length} trimmed'}',
-                      style: const TextStyle(
-                        color: Glass.textFaint,
-                        fontSize: 11,
-                      ),
-                    ),
+                  for (final PersonaProfile persona in personas) ...<Widget>[
+                    _personaTile(persona, isSelected: persona.id == activeId),
                     const SizedBox(height: 8),
-                    for (final PromptBlock block in prompt.blocks)
-                      _blockRow(block),
                   ],
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      widget.onOpenSettings();
+                    },
+                    child: GlassPanel(
+                      radius: 16,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      tintStrength: 1.1,
+                      shadow: false,
+                      child: const Center(
+                        child: Text(
+                          'Manage Personas in Settings',
+                          style: TextStyle(
+                            color: Glass.textSecondary,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _personaTile(PersonaProfile persona, {required bool isSelected}) {
+    return GestureDetector(
+      onTap: () async {
+        final AppSettings updated =
+            widget.settings.copyWith(activePersonaId: persona.id);
+        await SettingsStore().save(updated);
+        setState(() {
+          _chat.updateSettings(updated);
+        });
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Switched persona to "${persona.name}"'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      },
+      behavior: HitTestBehavior.opaque,
+      child: GlassPanel(
+        radius: 18,
+        padding: const EdgeInsets.all(12),
+        tintStrength: isSelected ? 1.6 : 0.85,
+        shadow: false,
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: Glass.tint(isSelected ? 0.35 : 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  persona.name.isNotEmpty
+                      ? persona.name.substring(0, 1).toUpperCase()
+                      : '?',
+                  style: const TextStyle(
+                    color: Glass.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    persona.name,
+                    style: const TextStyle(
+                      color: Glass.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (persona.description.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 2),
+                    Text(
+                      persona.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Glass.textFaint,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle_rounded,
+                  size: 20, color: Color.fromRGBO(245, 180, 80, 1)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- lorebook inspector sheet -------------------------------------------
+
+  void _openLoreSheet() {
+    final CharacterBook? book = widget.card.characterBook;
+    final List<WorldInfoEntry> allEntries =
+        book?.entries ?? const <WorldInfoEntry>[];
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        String searchQuery = '';
+        int selectedTab = 0; // 0 = All Entries, 1 = Active / Prompt
+
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            final WorldInfoScanResult? scan = _chat.scan;
+            final AssembledPrompt? prompt = _chat.lastPrompt;
+
+            final List<WorldInfoEntry> filteredEntries =
+                allEntries.where((WorldInfoEntry entry) {
+              if (searchQuery.isEmpty) return true;
+              final String q = searchQuery.toLowerCase();
+              if (entry.comment.toLowerCase().contains(q)) return true;
+              if (entry.content.toLowerCase().contains(q)) return true;
+              if (entry.keys.any((String k) => k.toLowerCase().contains(q))) {
+                return true;
+              }
+              if (entry.secondaryKeys
+                  .any((String k) => k.toLowerCase().contains(q))) {
+                return true;
+              }
+              return false;
+            }).toList();
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+              child: GlassPanel(
+                radius: 30,
+                blur: 34,
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+                tintStrength: 1.5,
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.75,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Glass.tint(0.35),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: <Widget>[
+                          const Text(
+                            'LOREBOOK INSPECTOR',
+                            style: TextStyle(
+                              color: Glass.textPrimary,
+                              fontSize: 12,
+                              letterSpacing: 1.6,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            book != null && book.name.isNotEmpty
+                                ? book.name
+                                : '${allEntries.length} entries',
+                            style: const TextStyle(
+                              color: Glass.textFaint,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Tabs: All Entries vs Active on Turn
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setModalState(() => selectedTab = 0),
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: selectedTab == 0
+                                      ? Glass.tint(0.25)
+                                      : Glass.tint(0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'ALL ENTRIES (${allEntries.length})',
+                                    style: TextStyle(
+                                      color: selectedTab == 0
+                                          ? Glass.textPrimary
+                                          : Glass.textFaint,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setModalState(() => selectedTab = 1),
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: selectedTab == 1
+                                      ? Glass.tint(0.25)
+                                      : Glass.tint(0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'ACTIVE NOW (${scan?.activated.length ?? 0})',
+                                    style: TextStyle(
+                                      color: selectedTab == 1
+                                          ? Glass.textPrimary
+                                          : Glass.textFaint,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      if (selectedTab == 0) ...<Widget>[
+                        // Search bar
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Glass.tint(0.10),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Glass.tint(0.18)),
+                          ),
+                          child: Row(
+                            children: <Widget>[
+                              const Icon(Icons.search_rounded,
+                                  size: 16, color: Glass.textFaint),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  onChanged: (String val) => setModalState(
+                                      () => searchQuery = val.trim()),
+                                  style: const TextStyle(
+                                    color: Glass.textPrimary,
+                                    fontSize: 13,
+                                  ),
+                                  decoration: const InputDecoration(
+                                    hintText:
+                                        'Search keys, comments, content...',
+                                    hintStyle: TextStyle(
+                                      color: Glass.textFaint,
+                                      fontSize: 12,
+                                    ),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding:
+                                        EdgeInsets.symmetric(vertical: 8),
+                                  ),
+                                ),
+                              ),
+                              if (searchQuery.isNotEmpty)
+                                GestureDetector(
+                                  onTap: () =>
+                                      setModalState(() => searchQuery = ''),
+                                  child: const Icon(Icons.close_rounded,
+                                      size: 16, color: Glass.textFaint),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // List of filtered entries
+                        Expanded(
+                          child: filteredEntries.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    allEntries.isEmpty
+                                        ? 'This card has no lorebook entries.'
+                                        : 'No entries match "$searchQuery"',
+                                    style: const TextStyle(
+                                      color: Glass.textFaint,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  itemCount: filteredEntries.length,
+                                  itemBuilder:
+                                      (BuildContext context, int index) {
+                                    final WorldInfoEntry entry =
+                                        filteredEntries[index];
+                                    final bool isActive = scan?.activated.any(
+                                            (WorldInfoEntry e) =>
+                                                e.uid == entry.uid) ??
+                                        false;
+                                    return _inspectEntryCard(entry,
+                                        isActive: isActive);
+                                  },
+                                ),
+                        ),
+                      ] else ...<Widget>[
+                        // Active & Prompt breakdown view
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  scan == null
+                                      ? 'This card has no lorebook.'
+                                      : '${scan.activated.length} active  ·  '
+                                          '${scan.tokenCost} tok'
+                                          '${scan.excludedByBudget.isEmpty ? '' : '  ·  ${scan.excludedByBudget.length} over budget'}',
+                                  style: const TextStyle(
+                                    color: Glass.textFaint,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                if (scan != null && scan.activated.isEmpty)
+                                  const Text(
+                                    'Nothing activated yet. Keys are matched against the '
+                                    'conversation, so entries fire once something relevant is '
+                                    'said.',
+                                    style: TextStyle(
+                                      color: Glass.textFaint,
+                                      fontSize: 12,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                for (final WorldInfoEntry entry
+                                    in scan?.activated ??
+                                        const <WorldInfoEntry>[])
+                                  _loreRow(entry),
+                                if (prompt != null) ...<Widget>[
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    'LAST PROMPT BLOCKS',
+                                    style: TextStyle(
+                                      color: Glass.textPrimary,
+                                      fontSize: 12,
+                                      letterSpacing: 1.6,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '${prompt.messages.length} messages  ·  '
+                                    '${prompt.tokenCost} tok'
+                                    '${prompt.droppedForBudget.isEmpty ? '' : '  ·  ${prompt.droppedForBudget.length} trimmed'}',
+                                    style: const TextStyle(
+                                      color: Glass.textFaint,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  for (final PromptBlock block in prompt.blocks)
+                                    _blockRow(block),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _inspectEntryCard(WorldInfoEntry entry, {required bool isActive}) {
+    final String title = entry.comment.isNotEmpty
+        ? entry.comment
+        : (entry.keys.isNotEmpty ? entry.keys.first : 'Entry #${entry.uid}');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isActive ? Glass.tint(0.20) : Glass.tint(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isActive
+              ? const Color.fromRGBO(245, 180, 80, 0.6)
+              : Glass.tint(0.14),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Glass.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (isActive) ...<Widget>[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(245, 180, 80, 0.25),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color.fromRGBO(245, 180, 80, 0.8),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: const Text(
+                    'ACTIVE NOW',
+                    style: TextStyle(
+                      color: Color.fromRGBO(245, 180, 80, 1),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Glass.tint(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  entry.position.name,
+                  style: const TextStyle(
+                    color: Glass.textSecondary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (entry.keys.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: <Widget>[
+                for (final String key in entry.keys)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: Glass.tint(0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      key,
+                      style: const TextStyle(
+                        color: Glass.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (entry.content.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              entry.content,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Glass.textFaint,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

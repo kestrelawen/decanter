@@ -107,6 +107,7 @@ jobs:
           for required in \
             app/android/gradlew \
             app/android/gradle/wrapper/gradle-wrapper.jar \
+            app/android/app/release.jks \
             app/android/app/src/main/AndroidManifest.xml \
             app/android/app/src/main/kotlin/app/decanter/MainActivity.kt \
             app/android/app/src/main/res/xml/file_paths.xml ; do

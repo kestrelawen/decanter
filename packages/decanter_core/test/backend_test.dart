@@ -159,6 +159,23 @@ void main() {
       expect(chunks.last.done, isTrue);
     });
 
+    test('extracts usage metadata from streaming chunk', () async {
+      final transport = FakeTransport(
+        lines: <String>[
+          'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+          'data: {"choices":[],"usage":{"prompt_tokens":15,"completion_tokens":5,"total_tokens":20,"prompt_tokens_details":{"cached_tokens":8}}}\n\n',
+          'data: [DONE]\n\n',
+        ],
+      );
+      final chunks =
+          await backendWith(transport).stream(requestWith()).toList();
+      final withUsage = chunks.firstWhere((ChatChunk c) => c.usage != null);
+      expect(withUsage.usage?.promptTokens, 15);
+      expect(withUsage.usage?.completionTokens, 5);
+      expect(withUsage.usage?.totalTokens, 20);
+      expect(withUsage.usage?.cachedTokens, 8);
+    });
+
     test('a role-only first chunk yields nothing but does not break', () async {
       final transport = FakeTransport(
         lines: <String>[

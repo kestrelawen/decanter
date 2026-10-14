@@ -47,6 +47,15 @@ class ChatController extends ChangeNotifier {
   int? _continuingIndex;
   int _revision = 0;
 
+  DateTime? _turnStartTime;
+  Duration? _lastTurnDuration;
+  int _lastTurnOutputTokens = 0;
+  double? _lastTokensPerSecond;
+  int? _lastPromptTokens;
+  int? _lastCachedTokens;
+  int? _lastCompletionTokens;
+  int? _lastTotalTokens;
+
   /// Held explicitly rather than consumed with `await for`, so [stop] can cancel
   /// the request the moment it is called. An `await for` loop only notices a
   /// cancellation flag when the *next* chunk arrives — against a provider that
@@ -84,11 +93,56 @@ class ChatController extends ChangeNotifier {
   /// A user-facing failure from the last turn, or null.
   String? get error => _error;
 
+  /// Elapsed time taken by the most recent generation turn.
+  Duration? get lastTurnDuration => _lastTurnDuration;
+
+  /// Total completion tokens generated in the most recent turn.
+  int get lastTurnOutputTokens =>
+      _lastCompletionTokens ?? _lastTurnOutputTokens;
+
+  /// Generation speed in tokens per second for the last turn.
+  double? get lastTokensPerSecond => _lastTokensPerSecond;
+
+  /// Number of prompt tokens evaluated by the model on the last turn.
+  int? get lastPromptTokens => _lastPromptTokens ?? _lastPrompt?.tokenCost;
+
+  /// Number of cached prompt tokens reported by the model (cache hit).
+  int? get lastCachedTokens => _lastCachedTokens;
+
+  /// Total tokens used (prompt + completion) on the last turn.
+  int? get lastTotalTokens =>
+      _lastTotalTokens ?? ((lastPromptTokens ?? 0) + lastTurnOutputTokens);
+
+  /// Expands macro placeholders in a given string.
+  String expandMacros(String input) {
+    if (input.isEmpty || !input.contains('{{')) return input;
+    final String activeUser = settings.personaName.trim().isEmpty
+        ? 'You'
+        : settings.personaName.trim();
+    final String charName =
+        card.name.trim().isEmpty ? 'Character' : card.name.trim();
+    final String personaBio = settings.personaDescription.trim();
+    return input
+        .replaceAll(
+          RegExp(r'\{\{\s*user\s*\}\}', caseSensitive: false),
+          activeUser,
+        )
+        .replaceAll(
+          RegExp(r'\{\{\s*char\s*\}\}', caseSensitive: false),
+          charName,
+        )
+        .replaceAll(
+          RegExp(r'\{\{\s*persona\s*\}\}', caseSensitive: false),
+          personaBio,
+        );
+  }
+
   /// Clears the chat and re-seeds it with the card's opening greeting.
   void reset() {
-    final List<String> greetings = card.greetings.isEmpty
+    final List<String> rawGreetings = card.greetings.isEmpty
         ? const <String>['*They are here, and say nothing yet.*']
         : card.greetings;
+    final List<String> greetings = rawGreetings.map(expandMacros).toList();
 
     _history
       ..clear()
@@ -150,12 +204,13 @@ class ChatController extends ChangeNotifier {
     final List<String> greetings = card.greetings;
     if (index < 0 || index >= greetings.length) return;
 
+    final String expandedGreeting = expandMacros(greetings[index]);
     final ChatMessage first = _history[0];
-    final int existingIndex = first.swipes.indexOf(greetings[index]);
+    final int existingIndex = first.swipes.indexOf(expandedGreeting);
     if (existingIndex != -1) {
       setSwipe(0, existingIndex);
     } else {
-      _history[0] = first.withAddedSwipe(greetings[index]);
+      _history[0] = first.withAddedSwipe(expandedGreeting);
       _scan = _runScan();
       _revision++;
       notifyListeners();
@@ -409,6 +464,15 @@ class ChatController extends ChangeNotifier {
     _isStreaming = true;
     _streamingText = '';
     _error = null;
+
+    _turnStartTime = DateTime.now();
+    _lastTurnOutputTokens = 0;
+    _lastTokensPerSecond = null;
+    _lastCachedTokens = null;
+    _lastCompletionTokens = null;
+    _lastTotalTokens = null;
+    _lastPromptTokens = null;
+
     notifyListeners();
 
     _subscription = backend.stream(request).listen(
@@ -416,7 +480,20 @@ class ChatController extends ChangeNotifier {
         if (_cancelled) return;
         if (chunk.delta.isNotEmpty) {
           _streamingText += chunk.delta;
+          _lastTurnOutputTokens +=
+              const HeuristicTokenizer().count(chunk.delta);
           notifyListeners();
+        }
+        if (chunk.usage != null) {
+          final usage = chunk.usage!;
+          if (usage.promptTokens != null)
+            _lastPromptTokens = usage.promptTokens;
+          if (usage.completionTokens != null) {
+            _lastCompletionTokens = usage.completionTokens;
+          }
+          if (usage.totalTokens != null) _lastTotalTokens = usage.totalTokens;
+          if (usage.cachedTokens != null)
+            _lastCachedTokens = usage.cachedTokens;
         }
         if (chunk.done) _finishTurn();
       },
@@ -456,6 +533,15 @@ class ChatController extends ChangeNotifier {
     _continuingIndex = null;
     final int? regenIndex = _regeneratingIndex;
     _regeneratingIndex = null;
+
+    if (_turnStartTime != null) {
+      _lastTurnDuration = DateTime.now().difference(_turnStartTime!);
+      final double seconds = _lastTurnDuration!.inMilliseconds / 1000.0;
+      final int tokens = _lastCompletionTokens ?? _lastTurnOutputTokens;
+      if (seconds > 0 && tokens > 0) {
+        _lastTokensPerSecond = tokens / seconds;
+      }
+    }
 
     if (!_cancelled) {
       final String reply = _streamingText;

@@ -175,58 +175,150 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<String?> _pickModel(List<String> models) {
     return showModalBottomSheet<String>(
       context: context,
-      backgroundColor: const Color.fromRGBO(24, 17, 14, 0.98),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (BuildContext sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 6),
-              child: Row(
-                children: <Widget>[
-                  const Text(
-                    'MODELS',
-                    style: TextStyle(
-                      color: Glass.textSecondary,
-                      fontSize: 10.5,
-                      letterSpacing: 1.4,
-                      fontWeight: FontWeight.w600,
-                    ),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            final List<String> filtered = models.where((String m) {
+              if (searchQuery.isEmpty) return true;
+              return m.toLowerCase().contains(searchQuery.toLowerCase());
+            }).toList();
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+              child: GlassPanel(
+                radius: 28,
+                blur: 32,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+                tintStrength: 1.45,
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.75,
+                  child: Column(
+                    children: <Widget>[
+                      Center(
+                        child: Container(
+                          width: 38,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Glass.tint(0.35),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: <Widget>[
+                          const Text(
+                            'MODELS',
+                            style: TextStyle(
+                              color: Glass.textSecondary,
+                              fontSize: 11,
+                              letterSpacing: 1.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            searchQuery.isEmpty
+                                ? '${models.length} models'
+                                : '${filtered.length} of ${models.length}',
+                            style: const TextStyle(
+                              color: Glass.textFaint,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Glass.tint(0.10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Glass.tint(0.18)),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            const Icon(Icons.search_rounded,
+                                size: 16, color: Glass.textFaint),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                autofocus: true,
+                                onChanged: (String val) => setModalState(
+                                    () => searchQuery = val.trim()),
+                                style: const TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 13,
+                                ),
+                                decoration: const InputDecoration(
+                                  hintText: 'Search models...',
+                                  hintStyle: TextStyle(
+                                    color: Glass.textFaint,
+                                    fontSize: 12,
+                                  ),
+                                  border: InputBorder.none,
+                                  isDense: true,
+                                  contentPadding:
+                                      EdgeInsets.symmetric(vertical: 8),
+                                ),
+                              ),
+                            ),
+                            if (searchQuery.isNotEmpty)
+                              GestureDetector(
+                                onTap: () =>
+                                    setModalState(() => searchQuery = ''),
+                                child: const Icon(Icons.close_rounded,
+                                    size: 16, color: Glass.textFaint),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No models match "$searchQuery"',
+                                  style: const TextStyle(
+                                    color: Glass.textFaint,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              )
+                            : ScrollConfiguration(
+                                behavior: const ScrollBehavior()
+                                    .copyWith(overscroll: false),
+                                child: ListView.builder(
+                                  physics: const ClampingScrollPhysics(),
+                                  itemCount: filtered.length,
+                                  itemBuilder:
+                                      (BuildContext context, int index) =>
+                                          ListTile(
+                                    dense: true,
+                                    title: Text(
+                                      filtered[index],
+                                      style: const TextStyle(
+                                        color: Glass.textPrimary,
+                                        fontSize: 13.5,
+                                      ),
+                                    ),
+                                    onTap: () => Navigator.of(sheetContext)
+                                        .pop(filtered[index]),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  Text(
-                    '${models.length}',
-                    style: const TextStyle(
-                      color: Glass.textFaint,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: models.length,
-                itemBuilder: (BuildContext context, int index) => ListTile(
-                  dense: true,
-                  title: Text(
-                    models[index],
-                    style: const TextStyle(
-                      color: Glass.textPrimary,
-                      fontSize: 13.5,
-                    ),
-                  ),
-                  onTap: () => Navigator.of(sheetContext).pop(models[index]),
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -238,17 +330,154 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  AppSettings _collect() => _draft.copyWith(
-        baseUrl: _baseUrl.text.trim(),
-        apiKey: _apiKey.text.trim(),
-        model: _model.text.trim(),
-        personaName:
-            _persona.text.trim().isEmpty ? 'You' : _persona.text.trim(),
-        updateRepo: _updateRepo.text.trim().isEmpty
-            ? 'kestrelawen/decanter'
-            : _updateRepo.text.trim(),
-        updateToken: _updateToken.text.trim(),
-      );
+  AppSettings _collect() {
+    final PersonaProfile active = _draft.activePersona;
+    return _draft.copyWith(
+      baseUrl: _baseUrl.text.trim(),
+      apiKey: _apiKey.text.trim(),
+      model: _model.text.trim(),
+      personaName: active.name,
+      personaDescription: active.description,
+      updateRepo: _updateRepo.text.trim().isEmpty
+          ? 'kestrelawen/decanter'
+          : _updateRepo.text.trim(),
+      updateToken: _updateToken.text.trim(),
+    );
+  }
+
+  Future<void> _showPersonaDialog({PersonaProfile? existing}) async {
+    final TextEditingController nameCtrl =
+        TextEditingController(text: existing?.name ?? '');
+    final TextEditingController descCtrl =
+        TextEditingController(text: existing?.description ?? '');
+
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(24, 18, 15, 0.98),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: Glass.tint(0.2)),
+        ),
+        title: Text(
+          existing == null ? 'New Persona' : 'Edit Persona',
+          style: const TextStyle(
+            color: Glass.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'NAME (replaces {{user}})',
+              style: TextStyle(
+                color: Glass.textSecondary,
+                fontSize: 10,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Glass.tint(0.18)),
+              ),
+              child: TextField(
+                controller: nameCtrl,
+                style:
+                    const TextStyle(color: Glass.textPrimary, fontSize: 13.5),
+                decoration: const InputDecoration(
+                  hintText: 'e.g. You, Kestrel, Detective',
+                  hintStyle: TextStyle(color: Glass.textFaint, fontSize: 12),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'BIO / DESCRIPTION (replaces {{persona}})',
+              style: TextStyle(
+                color: Glass.textSecondary,
+                fontSize: 10,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Glass.tint(0.18)),
+              ),
+              child: TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                style: const TextStyle(color: Glass.textPrimary, fontSize: 13),
+                decoration: const InputDecoration(
+                  hintText: 'Personality, background, appearance...',
+                  hintStyle: TextStyle(color: Glass.textFaint, fontSize: 12),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 8),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child:
+                const Text('Cancel', style: TextStyle(color: Glass.textFaint)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child:
+                const Text('Save', style: TextStyle(color: Glass.textPrimary)),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true) return;
+    final String newName =
+        nameCtrl.text.trim().isEmpty ? 'You' : nameCtrl.text.trim();
+    final String newDesc = descCtrl.text.trim();
+
+    setState(() {
+      final List<PersonaProfile> current =
+          List<PersonaProfile>.from(_draft.personas);
+      if (existing == null) {
+        final PersonaProfile created = PersonaProfile(
+          id: 'p_${DateTime.now().millisecondsSinceEpoch}',
+          name: newName,
+          description: newDesc,
+        );
+        current.add(created);
+        _draft = _draft.copyWith(
+          personas: current,
+          activePersonaId: created.id,
+        );
+      } else {
+        final int idx =
+            current.indexWhere((PersonaProfile p) => p.id == existing.id);
+        if (idx != -1) {
+          current[idx] = existing.copyWith(name: newName, description: newDesc);
+          _draft = _draft.copyWith(personas: current);
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -394,13 +623,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 12),
                     _card(
-                      title: 'YOU',
+                      title: 'PERSONAS',
                       children: <Widget>[
-                        _field(
-                          label: 'Name used for {{user}}',
-                          controller: _persona,
-                          hint: 'You',
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Your character personas in chats.',
+                              style: TextStyle(
+                                color: Glass.textFaint,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: () => _showPersonaDialog(),
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                tintStrength: 1.5,
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Icon(Icons.add_rounded,
+                                        size: 14, color: Glass.textPrimary),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'ADD',
+                                      style: TextStyle(
+                                        color: Glass.textPrimary,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 12),
+                        for (final PersonaProfile p
+                            in _draft.personas) ...<Widget>[
+                          _personaSettingsRow(p,
+                              isSelected: p.id == _draft.activePersonaId),
+                          const SizedBox(height: 8),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -630,6 +900,122 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _personaSettingsRow(PersonaProfile p, {required bool isSelected}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? Glass.tint(0.18) : Glass.tint(0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isSelected
+              ? const Color.fromRGBO(245, 180, 80, 0.7)
+              : Glass.tint(0.12),
+        ),
+      ),
+      child: Row(
+        children: <Widget>[
+          GestureDetector(
+            onTap: () =>
+                setState(() => _draft = _draft.copyWith(activePersonaId: p.id)),
+            behavior: HitTestBehavior.opaque,
+            child: Icon(
+              isSelected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              size: 20,
+              color: isSelected
+                  ? const Color.fromRGBO(245, 180, 80, 1)
+                  : Glass.textFaint,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(
+                  () => _draft = _draft.copyWith(activePersonaId: p.id)),
+              behavior: HitTestBehavior.opaque,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Text(
+                        p.name,
+                        style: const TextStyle(
+                          color: Glass.textPrimary,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (isSelected) ...<Widget>[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color.fromRGBO(245, 180, 80, 0.25),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'ACTIVE',
+                            style: TextStyle(
+                              color: Color.fromRGBO(245, 180, 80, 1),
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (p.description.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 2),
+                    Text(
+                      p.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Glass.textFaint,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined,
+                size: 16, color: Glass.textSecondary),
+            onPressed: () => _showPersonaDialog(existing: p),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+          if (_draft.personas.length > 1)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded,
+                  size: 16, color: Color.fromRGBO(240, 100, 100, 0.8)),
+              onPressed: () {
+                setState(() {
+                  final List<PersonaProfile> next =
+                      List<PersonaProfile>.from(_draft.personas)
+                        ..removeWhere((PersonaProfile item) => item.id == p.id);
+                  String nextActive = _draft.activePersonaId;
+                  if (nextActive == p.id) {
+                    nextActive = next.first.id;
+                  }
+                  _draft = _draft.copyWith(
+                      personas: next, activePersonaId: nextActive);
+                });
+              },
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            ),
+        ],
+      ),
     );
   }
 }
