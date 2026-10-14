@@ -273,6 +273,7 @@ class GlassIconButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
     this.badge,
+    this.tooltip,
     this.size = 16,
     this.tintStrength = 1.3,
   });
@@ -283,12 +284,15 @@ class GlassIconButton extends StatelessWidget {
   /// A short count shown at the top-right, or null for no badge.
   final String? badge;
 
+  /// Tooltip message displayed on hover/long-press.
+  final String? tooltip;
+
   final double size;
   final double tintStrength;
 
   @override
   Widget build(BuildContext context) {
-    final Widget button = GlassPanel(
+    Widget button = GlassPanel(
       radius: 999,
       blur: 12,
       padding: const EdgeInsets.all(9),
@@ -297,6 +301,10 @@ class GlassIconButton extends StatelessWidget {
       showSpecular: false,
       child: Icon(icon, size: size, color: Glass.textPrimary),
     );
+
+    if (tooltip != null) {
+      button = Tooltip(message: tooltip!, child: button);
+    }
 
     if (badge == null) return GestureDetector(onTap: onTap, child: button);
 

@@ -355,7 +355,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // arrow would have nowhere to go, and a dead control is worse than
             // no control.
             if (Navigator.of(context).canPop()) ...<Widget>[
-              _IconAction(
+              GlassIconButton(
                 icon: Icons.arrow_back_rounded,
                 onTap: () => Navigator.of(context).maybePop(),
               ),
@@ -406,21 +406,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            _IconAction(
+            GlassIconButton(
               icon: Icons.speed_rounded,
               tooltip: 'Telemetry & Stats',
               onTap: _openSessionStatsSheet,
             ),
             if (widget.store != null && widget.entryId != null) ...<Widget>[
               const SizedBox(width: 6),
-              _IconAction(
+              GlassIconButton(
                 icon: Icons.forum_outlined,
                 tooltip: 'Chats',
                 onTap: _openChatsSheet,
               ),
             ],
             const SizedBox(width: 6),
-            _IconAction(
+            GlassIconButton(
               icon: Icons.more_vert_rounded,
               tooltip: 'More options',
               onTap: _openMoreMenuSheet,
@@ -671,13 +671,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? null
                 : () => _chat.regenerate(messageIndex: messageIndex),
             behavior: HitTestBehavior.opaque,
-            child: Tooltip(
+            child: const Tooltip(
               message: 'Regenerate',
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const <Widget>[
+                  children: <Widget>[
                     Icon(
                       Icons.sync_rounded,
                       size: 14,
@@ -704,13 +704,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? null
                 : () => _chat.continueGeneration(messageIndex: messageIndex),
             behavior: HitTestBehavior.opaque,
-            child: Tooltip(
+            child: const Tooltip(
               message: 'Continue writing',
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const <Widget>[
+                  children: <Widget>[
                     Icon(
                       Icons.fast_forward_rounded,
                       size: 14,
@@ -2232,12 +2232,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.of(sheetContext).pop();
                       widget.onOpenSettings();
                     },
-                    child: GlassPanel(
+                    child: const GlassPanel(
                       radius: 16,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: EdgeInsets.symmetric(vertical: 12),
                       tintStrength: 1.1,
                       shadow: false,
-                      child: const Center(
+                      child: Center(
                         child: Text(
                           'Manage Personas in Settings',
                           style: TextStyle(
@@ -2879,71 +2879,6 @@ class _ThinkingDotsState extends State<_ThinkingDots>
           ],
         );
       },
-    );
-  }
-}
-
-/// A circular glass button holding one icon, with an optional count badge.
-class _IconAction extends StatelessWidget {
-  const _IconAction({
-    required this.icon,
-    required this.onTap,
-    this.badge,
-    this.tooltip,
-  });
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final String? badge;
-  final String? tooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget button = GlassPanel(
-      radius: 999,
-      blur: 12,
-      padding: const EdgeInsets.all(9),
-      tintStrength: 1.3,
-      shadow: false,
-      showSpecular: false,
-      child: Icon(icon, size: 16, color: Glass.textPrimary),
-    );
-
-    if (tooltip != null) {
-      button = Tooltip(message: tooltip!, child: button);
-    }
-
-    if (badge == null) {
-      return GestureDetector(onTap: onTap, child: button);
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: <Widget>[
-          button,
-          Positioned(
-            right: -4,
-            top: -5,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: Glass.tint(0.92),
-                borderRadius: BorderRadius.circular(99),
-              ),
-              child: Text(
-                badge!,
-                style: const TextStyle(
-                  color: Color.fromRGBO(30, 18, 12, 1),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

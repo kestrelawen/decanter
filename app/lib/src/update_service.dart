@@ -141,7 +141,8 @@ class UpdateService {
   Future<Directory> updateDirectory() async {
     final String? path = await _channel.invokeMethod<String>('updateDirectory');
     if (path == null || path.isEmpty) {
-      throw FileSystemException('The platform returned no update directory.');
+      throw const FileSystemException(
+          'The platform returned no update directory.');
     }
     final Directory directory = Directory(path);
     if (!directory.existsSync()) directory.createSync(recursive: true);

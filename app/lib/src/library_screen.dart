@@ -312,7 +312,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 _monogramFull(entry),
 
               // Gradient Scrim for readable text
-              Positioned.fill(
+              const Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -320,10 +320,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       end: Alignment.bottomCenter,
                       colors: <Color>[
                         Colors.transparent,
-                        const Color.fromRGBO(0, 0, 0, 0.15),
-                        const Color.fromRGBO(0, 0, 0, 0.88),
+                        Color.fromRGBO(0, 0, 0, 0.15),
+                        Color.fromRGBO(0, 0, 0, 0.88),
                       ],
-                      stops: const <double>[0.35, 0.65, 1.0],
+                      stops: <double>[0.35, 0.65, 1.0],
                     ),
                   ),
                 ),
@@ -337,8 +337,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   onTap: () => _confirmDelete(entry),
                   child: Container(
                     padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: const Color.fromRGBO(0, 0, 0, 0.45),
+                    decoration: const BoxDecoration(
+                      color: Color.fromRGBO(0, 0, 0, 0.45),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

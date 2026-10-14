@@ -637,13 +637,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const Spacer(),
                             GestureDetector(
                               onTap: () => _showPersonaDialog(),
-                              child: GlassPill(
-                                padding: const EdgeInsets.symmetric(
+                              child: const GlassPill(
+                                padding: EdgeInsets.symmetric(
                                   horizontal: 10,
                                   vertical: 6,
                                 ),
                                 tintStrength: 1.5,
-                                child: const Row(
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: <Widget>[
                                     Icon(Icons.add_rounded,
@@ -679,9 +679,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: <Widget>[
                         Row(
                           children: <Widget>[
-                            Text(
+                            const Text(
                               'Decanter $appVersion',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Glass.textPrimary,
                                 fontSize: 13.5,
                               ),
@@ -689,13 +689,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const Spacer(),
                             GestureDetector(
                               onTap: _openUpdates,
-                              child: GlassPill(
-                                padding: const EdgeInsets.symmetric(
+                              child: const GlassPill(
+                                padding: EdgeInsets.symmetric(
                                   horizontal: 13,
                                   vertical: 8,
                                 ),
                                 tintStrength: 1.6,
-                                child: const Text(
+                                child: Text(
                                   'CHECK',
                                   style: TextStyle(
                                     color: Glass.textPrimary,
@@ -883,10 +883,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         GestureDetector(
           onTap: () => Navigator.of(context).pop(pending),
-          child: GlassPanel(
-            padding: const EdgeInsets.symmetric(vertical: 15),
+          child: const GlassPanel(
+            padding: EdgeInsets.symmetric(vertical: 15),
             tintStrength: 2.0,
-            child: const Center(
+            child: Center(
               child: Text(
                 'SAVE',
                 style: TextStyle(

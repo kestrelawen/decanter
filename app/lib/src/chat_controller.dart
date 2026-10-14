@@ -486,14 +486,18 @@ class ChatController extends ChangeNotifier {
         }
         if (chunk.usage != null) {
           final usage = chunk.usage!;
-          if (usage.promptTokens != null)
+          if (usage.promptTokens != null) {
             _lastPromptTokens = usage.promptTokens;
+          }
           if (usage.completionTokens != null) {
             _lastCompletionTokens = usage.completionTokens;
           }
-          if (usage.totalTokens != null) _lastTotalTokens = usage.totalTokens;
-          if (usage.cachedTokens != null)
+          if (usage.totalTokens != null) {
+            _lastTotalTokens = usage.totalTokens;
+          }
+          if (usage.cachedTokens != null) {
             _lastCachedTokens = usage.cachedTokens;
+          }
         }
         if (chunk.done) _finishTurn();
       },

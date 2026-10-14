@@ -226,9 +226,9 @@ class _UpdateScreenState extends State<UpdateScreen> {
       children: <Widget>[
         Row(
           children: <Widget>[
-            Text(
+            const Text(
               'Decanter $appVersion',
-              style: const TextStyle(
+              style: TextStyle(
                 color: Glass.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
