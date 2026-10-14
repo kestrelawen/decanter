@@ -12,11 +12,20 @@ class HomeScreen extends StatefulWidget {
     required this.card,
     required this.settings,
     required this.onOpenSettings,
+    this.store,
+    this.entryId,
   });
 
   final TavernCard card;
   final AppSettings settings;
   final Future<void> Function() onOpenSettings;
+
+  /// Where the conversation is kept. Nullable so the screen still works
+  /// standalone — in a widget test, or with a card that has no library entry.
+  final LibraryStore? store;
+
+  /// The library entry this conversation belongs to. Required to persist.
+  final String? entryId;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -29,11 +38,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _greetingIndex = 0;
 
+  /// How many messages were on disk at the last save, so an unchanged history
+  /// does not rewrite the file.
+  int _lastSavedCount = 0;
+
   @override
   void initState() {
     super.initState();
     _chat = ChatController(card: widget.card, settings: widget.settings)
       ..addListener(_onChatChanged);
+    _restoreChat();
+  }
+
+  /// Picks the conversation up where the last visit left it.
+  void _restoreChat() {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null) return;
+
+    final StoredChat saved = store.loadChat(id);
+    if (saved.isEmpty) return;
+
+    _chat.replaceHistory(saved.messages);
+    _lastSavedCount = saved.messages.length;
   }
 
   @override
@@ -58,6 +85,36 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() {});
     _follow();
+    _persist();
+  }
+
+  /// Saves the conversation once a turn has settled.
+  ///
+  /// Deliberately not on every streamed token: that would rewrite the file
+  /// hundreds of times per reply for no benefit, because the recoverable state
+  /// is the last settled one either way.
+  void _persist() {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store == null || id == null || _chat.isStreaming) return;
+
+    final List<ChatMessage> history = _chat.history;
+    if (history.length == _lastSavedCount) return;
+    _lastSavedCount = history.length;
+    store.saveChat(id, history);
+  }
+
+  /// Abandons the conversation and starts again from the greeting.
+  ///
+  /// The stored copy is cleared as well, so "new chat" means new on the next
+  /// launch rather than resurrecting what was just discarded.
+  void _startFresh() {
+    final LibraryStore? store = widget.store;
+    final String? id = widget.entryId;
+    if (store != null && id != null) store.clearChat(id);
+
+    _chat.reset();
+    _lastSavedCount = _chat.history.length;
   }
 
   /// Keeps the newest content in view, but only when the user is already near
@@ -132,6 +189,16 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SheenSweep(
         child: Row(
           children: <Widget>[
+            // Only shown when this screen was pushed. Sitting at the root, a back
+            // arrow would have nowhere to go, and a dead control is worse than
+            // no control.
+            if (Navigator.of(context).canPop()) ...<Widget>[
+              _IconAction(
+                icon: Icons.arrow_back_rounded,
+                onTap: () => Navigator.of(context).maybePop(),
+              ),
+              const SizedBox(width: 9),
+            ],
             _avatar(),
             const SizedBox(width: 11),
             Expanded(
@@ -182,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 6),
             _IconAction(icon: Icons.tune_rounded, onTap: widget.onOpenSettings),
             const SizedBox(width: 6),
-            _IconAction(icon: Icons.refresh_rounded, onTap: _chat.reset),
+            _IconAction(icon: Icons.refresh_rounded, onTap: _startFresh),
           ],
         ),
       ),

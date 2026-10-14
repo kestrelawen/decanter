@@ -250,6 +250,74 @@ class _LiquidBackgroundState extends State<LiquidBackground>
   }
 }
 
+/// A circular glass button holding a single icon, with an optional count badge.
+///
+/// Extracted so each screen does not grow its own copy: the header of the
+/// library, the chat and the settings screen all want exactly this.
+class GlassIconButton extends StatelessWidget {
+  const GlassIconButton({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    this.badge,
+    this.size = 16,
+    this.tintStrength = 1.3,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  /// A short count shown at the top-right, or null for no badge.
+  final String? badge;
+
+  final double size;
+  final double tintStrength;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget button = GlassPanel(
+      radius: 999,
+      blur: 12,
+      padding: const EdgeInsets.all(9),
+      tintStrength: tintStrength,
+      shadow: false,
+      showSpecular: false,
+      child: Icon(icon, size: size, color: Glass.textPrimary),
+    );
+
+    if (badge == null) return GestureDetector(onTap: onTap, child: button);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          button,
+          Positioned(
+            right: -4,
+            top: -5,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: Glass.tint(0.92),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                badge!,
+                style: const TextStyle(
+                  color: Color.fromRGBO(30, 18, 12, 1),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// A slow highlight travelling across its child, as if the surface were
 /// catching a moving light source.
 ///

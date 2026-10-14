@@ -1,7 +1,7 @@
 name: decanter
 description: SillyTavern-compatible character cards, lorebooks and presets for Android.
 publish_to: none
-version: 0.3.1+4
+version: 0.4.0+5
 
 environment:
   sdk: ^3.5.0

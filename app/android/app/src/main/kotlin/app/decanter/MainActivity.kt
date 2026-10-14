@@ -3,7 +3,9 @@ package app.decanter
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -21,6 +23,32 @@ import java.io.File
 class MainActivity : FlutterActivity() {
 
     private val channelName = "app.decanter/updates"
+
+    private val libraryChannelName = "app.decanter/library"
+
+    /// The call waiting on a file pick, so the activity result answers the right one.
+    private var pendingPick: MethodChannel.Result? = null
+
+    /// Registered here rather than in onCreate because this runs during it, and
+    /// an ActivityResult contract must be registered before the activity starts.
+    private val pickCard =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val result = pendingPick
+            pendingPick = null
+            if (result == null) return@registerForActivityResult
+
+            if (uri == null) {
+                // The user backed out of the picker. Not a failure.
+                result.success(null)
+                return@registerForActivityResult
+            }
+
+            try {
+                result.success(copyPickedFileToCache(uri))
+            } catch (error: Exception) {
+                result.error("pick_failed", error.message ?: "Could not read that file.", null)
+            }
+        }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -55,6 +83,73 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // The library side: where files live, and how a card gets in.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, libraryChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "documentsDirectory" -> result.success(filesDir.absolutePath)
+
+                    "pickCardFile" -> {
+                        if (pendingPick != null) {
+                            result.error("pick_busy", "A file picker is already open.", null)
+                        } else {
+                            pendingPick = result
+                            try {
+                                pickCard.launch(arrayOf("*/*"))
+                            } catch (error: Exception) {
+                                pendingPick = null
+                                result.error(
+                                    "pick_unavailable",
+                                    error.message ?: "No file picker available.",
+                                    null
+                                )
+                            }
+                        }
+                    }
+
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * Copies a picked document into the app's own cache and returns its path.
+     *
+     * The content URI is only readable while the grant lasts, and Dart cannot open
+     * a content:// URI at all, so the bytes are materialised before returning.
+     */
+    private fun copyPickedFileToCache(uri: Uri): String {
+        // A display name is attacker-adjacent input as far as the filesystem is
+        // concerned, so separators are stripped before it becomes a path.
+        val rawName = displayNameOf(uri) ?: "card"
+        val name = rawName.replace('/', '_').replace('\\', '_')
+        val directory = File(cacheDir, "picked")
+        if (!directory.exists()) directory.mkdirs()
+        val target = File(directory, name)
+
+        val input = contentResolver.openInputStream(uri)
+            ?: throw java.io.FileNotFoundException("Could not open $uri")
+        input.use { source ->
+            target.outputStream().use { sink -> source.copyTo(sink) }
+        }
+        return target.absolutePath
+    }
+
+    private fun displayNameOf(uri: Uri): String? {
+        val cursor = contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        ) ?: return null
+        cursor.use {
+            if (!it.moveToFirst()) return null
+            val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index < 0) return null
+            return it.getString(index)
+        }
     }
 
     /** A directory this app owns, so the installer can be granted read on it. */

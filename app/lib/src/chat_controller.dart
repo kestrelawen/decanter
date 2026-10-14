@@ -100,6 +100,21 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Replaces the conversation wholesale, e.g. when restoring it from disk.
+  ///
+  /// The lorebook scan is re-run rather than carried over: knowing which lore is
+  /// active is a function of the history, and stale timing from another session
+  /// would fire entries for no visible reason.
+  void replaceHistory(List<ChatMessage> messages) {
+    if (messages.isEmpty) return;
+    _history
+      ..clear()
+      ..addAll(messages);
+    _scan = _runScan();
+    _error = null;
+    notifyListeners();
+  }
+
   /// Swaps in a different opening greeting.
   void useGreeting(int index) {
     final List<String> greetings = card.greetings;
