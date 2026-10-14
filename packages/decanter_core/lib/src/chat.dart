@@ -98,6 +98,30 @@ class ChatMessage {
     );
   }
 
+  /// Returns a copy of this message with the active swipe/content replaced.
+  ChatMessage withEditedContent(String newContent) {
+    if (swipes.isEmpty) {
+      return copyWith(
+        content: newContent,
+        swipes: <String>[newContent],
+        swipeIndex: 0,
+      );
+    }
+    final List<String> list = List<String>.from(swipes);
+    final int idx = swipeIndex.clamp(0, list.length - 1);
+    list[idx] = newContent;
+    return copyWith(
+      content: newContent,
+      swipes: list,
+      swipeIndex: idx,
+    );
+  }
+
+  /// Appends additional text to the active swipe/content.
+  ChatMessage withAppendedContent(String additional) {
+    return withEditedContent('$content$additional');
+  }
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'role': role.name,
         if (name != null) 'name': name,

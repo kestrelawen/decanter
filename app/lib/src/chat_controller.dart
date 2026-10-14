@@ -44,6 +44,7 @@ class ChatController extends ChangeNotifier {
   bool _isStreaming = false;
   String? _error;
   int? _regeneratingIndex;
+  int? _continuingIndex;
   int _revision = 0;
 
   /// Held explicitly rather than consumed with `await for`, so [stop] can cancel
@@ -74,6 +75,11 @@ class ChatController extends ChangeNotifier {
 
   /// Index of the message being regenerated, or null during normal turns.
   int? get regeneratingIndex => _regeneratingIndex;
+
+  /// Index of the message being extended with continue, or null.
+  int? get continuingIndex => _continuingIndex;
+
+  bool get isContinuing => _continuingIndex != null;
 
   /// A user-facing failure from the last turn, or null.
   String? get error => _error;
@@ -110,6 +116,7 @@ class ChatController extends ChangeNotifier {
     _cancelled = false;
     _error = null;
     _regeneratingIndex = null;
+    _continuingIndex = null;
     _revision++;
     notifyListeners();
   }
@@ -193,6 +200,63 @@ class ChatController extends ChangeNotifier {
     if (message.swipes.length <= 1) return;
 
     _history[messageIndex] = message.withDeletedSwipe(swipeIndex);
+    _scan = _runScan();
+    _revision++;
+    notifyListeners();
+  }
+
+  /// Edits the active text of an existing message in history.
+  void editMessage(int index, String newContent) {
+    if (index < 0 || index >= _history.length) return;
+    final String trimmed = newContent.trim();
+    if (trimmed.isEmpty) return;
+
+    _history[index] = _history[index].withEditedContent(trimmed);
+    _scan = _runScan();
+    _revision++;
+    notifyListeners();
+  }
+
+  /// Removes an individual message from history.
+  void deleteMessage(int index) {
+    if (index < 0 || index >= _history.length) return;
+    if (_history.length <= 1) {
+      reset();
+      return;
+    }
+
+    _history.removeAt(index);
+    _scan = _runScan();
+    _revision++;
+    notifyListeners();
+  }
+
+  /// Prunes conversation history starting at [index] down to the end.
+  void pruneFrom(int index) {
+    if (index < 0 || index >= _history.length) return;
+    if (index == 0) {
+      reset();
+      return;
+    }
+
+    _history.removeRange(index, _history.length);
+    _scan = _runScan();
+    _revision++;
+    notifyListeners();
+  }
+
+  /// Injects a system/narrator note into history without triggering a generation.
+  void addNarratorNote(String note) {
+    final String trimmed = note.trim();
+    if (trimmed.isEmpty) return;
+
+    _history.add(
+      ChatMessage(
+        role: ChatRole.system,
+        content: trimmed,
+        isSystemNote: true,
+      ),
+    );
     _scan = _runScan();
     _revision++;
     notifyListeners();
@@ -282,9 +346,57 @@ class ChatController extends ChangeNotifier {
     return _executeTurn(request, regeneratingIndex: targetIndex);
   }
 
+  /// Continues generating from the end of an assistant reply.
+  Future<void> continueGeneration({int? messageIndex}) async {
+    if (_history.isEmpty || _isStreaming) return;
+
+    final int targetIndex = messageIndex ??
+        _history.lastIndexWhere(
+          (ChatMessage m) => m.role == ChatRole.assistant,
+        );
+    if (targetIndex < 0 ||
+        targetIndex >= _history.length ||
+        _history[targetIndex].role != ChatRole.assistant) {
+      return;
+    }
+
+    if (!settings.isConfigured) {
+      _error = 'No backend configured. ${settings.configurationProblem} '
+          'Open settings to add one.';
+      notifyListeners();
+      return;
+    }
+
+    final List<ChatMessage> historyForPrompt = <ChatMessage>[
+      ..._history.sublist(0, targetIndex + 1),
+      const ChatMessage(
+        role: ChatRole.user,
+        content:
+            '[Continue your previous response from where you left off. Do not repeat any words already written; begin immediately with the next word.]',
+        isSystemNote: true,
+      ),
+    ];
+
+    final ChatRequest request;
+    try {
+      request = _buildRequest(historyOverride: historyForPrompt);
+    } on Object catch (error) {
+      _error = 'Could not assemble the prompt: $error';
+      notifyListeners();
+      return;
+    }
+
+    return _executeTurn(
+      request,
+      regeneratingIndex: null,
+      continuingIndex: targetIndex,
+    );
+  }
+
   Future<void> _executeTurn(
     ChatRequest request, {
     required int? regeneratingIndex,
+    int? continuingIndex,
   }) {
     final ChatBackend backend = _backendFactory(settings);
     final Completer<void> turn = Completer<void>();
@@ -292,6 +404,7 @@ class ChatController extends ChangeNotifier {
     _activeBackend = backend;
     _turn = turn;
     _regeneratingIndex = regeneratingIndex;
+    _continuingIndex = continuingIndex;
     _cancelled = false;
     _isStreaming = true;
     _streamingText = '';
@@ -339,26 +452,40 @@ class ChatController extends ChangeNotifier {
     if (turn == null || turn.isCompleted) return;
     _turn = null;
 
+    final int? contIndex = _continuingIndex;
+    _continuingIndex = null;
     final int? regenIndex = _regeneratingIndex;
     _regeneratingIndex = null;
 
     if (!_cancelled) {
-      final String reply = _streamingText.trim();
-      if (reply.isEmpty) {
+      final String reply = _streamingText;
+      if (reply.trim().isEmpty) {
         _error ??= 'The provider returned an empty reply.';
       } else {
         if (_error != null &&
             _error!.toLowerCase().contains('connection closed')) {
           _error = null;
         }
-        if (regenIndex != null && regenIndex < _history.length) {
-          _history[regenIndex] = _history[regenIndex].withAddedSwipe(reply);
+        if (contIndex != null && contIndex < _history.length) {
+          final String base = _history[contIndex].content;
+          final String toAppend = (base.isNotEmpty &&
+                  !base.endsWith(' ') &&
+                  !base.endsWith('\n') &&
+                  !reply.startsWith(' ') &&
+                  !reply.startsWith('\n'))
+              ? ' $reply'
+              : reply;
+          _history[contIndex] =
+              _history[contIndex].withAppendedContent(toAppend);
+        } else if (regenIndex != null && regenIndex < _history.length) {
+          _history[regenIndex] =
+              _history[regenIndex].withAddedSwipe(reply.trim());
         } else {
           _history.add(
             ChatMessage(
               role: ChatRole.assistant,
-              content: reply,
-              swipes: <String>[reply],
+              content: reply.trim(),
+              swipes: <String>[reply.trim()],
               swipeIndex: 0,
             ),
           );
@@ -388,19 +515,33 @@ class ChatController extends ChangeNotifier {
     if (!_isStreaming) return;
     _cancelled = true;
 
+    final int? contIndex = _continuingIndex;
+    _continuingIndex = null;
     final int? regenIndex = _regeneratingIndex;
     _regeneratingIndex = null;
 
-    final String partial = _streamingText.trim();
-    if (partial.isNotEmpty) {
-      if (regenIndex != null && regenIndex < _history.length) {
-        _history[regenIndex] = _history[regenIndex].withAddedSwipe(partial);
+    final String partial = _streamingText;
+    if (partial.trim().isNotEmpty) {
+      if (contIndex != null && contIndex < _history.length) {
+        final String base = _history[contIndex].content;
+        final String toAppend = (base.isNotEmpty &&
+                !base.endsWith(' ') &&
+                !base.endsWith('\n') &&
+                !partial.startsWith(' ') &&
+                !partial.startsWith('\n'))
+            ? ' $partial'
+            : partial;
+        _history[contIndex] =
+            _history[contIndex].withAppendedContent(toAppend);
+      } else if (regenIndex != null && regenIndex < _history.length) {
+        _history[regenIndex] =
+            _history[regenIndex].withAddedSwipe(partial.trim());
       } else {
         _history.add(
           ChatMessage(
             role: ChatRole.assistant,
-            content: partial,
-            swipes: <String>[partial],
+            content: partial.trim(),
+            swipes: <String>[partial.trim()],
             swipeIndex: 0,
           ),
         );

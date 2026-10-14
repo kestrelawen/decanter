@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'chat_content.dart';
 import 'chat_controller.dart';
@@ -146,6 +147,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final String text = _input.text.trim();
     if (text.isEmpty || _chat.isStreaming) return;
     _input.clear();
+
+    if (text.startsWith('/note ') ||
+        text.startsWith('/sys ') ||
+        text.startsWith('/narration ')) {
+      final String note =
+          text.replaceFirst(RegExp(r'^/(note|sys|narration)\s+'), '');
+      _chat.addNarratorNote(note);
+      _follow();
+      return;
+    }
+
     // Deliberately not awaited: the UI stays responsive while the reply streams.
     _chat.send(text);
     _follow();
@@ -316,8 +328,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _messageList() {
     final List<ChatMessage> history = _chat.history;
-    final int extra =
-        (_chat.isStreaming && _chat.regeneratingIndex == null) ? 1 : 0;
+    final int extra = (_chat.isStreaming &&
+            _chat.regeneratingIndex == null &&
+            _chat.continuingIndex == null)
+        ? 1
+        : 0;
 
     return ListView.builder(
       controller: _scroll,
@@ -339,16 +354,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final bool isRegeneratingThis =
             _chat.isStreaming && _chat.regeneratingIndex == index;
+        final bool isContinuingThis =
+            _chat.isStreaming && _chat.continuingIndex == index;
         final ChatMessage message = isRegeneratingThis
             ? history[index].copyWith(content: _chat.streamingText)
-            : history[index];
+            : (isContinuingThis
+                ? history[index].withAppendedContent(_chat.streamingText)
+                : history[index]);
 
         return KeyedSubtree(
           key: ValueKey<int>(index),
           child: _bubble(
             message,
             messageIndex: index,
-            streaming: isRegeneratingThis,
+            streaming: isRegeneratingThis || isContinuingThis,
           ),
         );
       },
@@ -361,15 +380,21 @@ class _HomeScreenState extends State<HomeScreen> {
     bool streaming = false,
   }) {
     if (message.isSystemNote) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 8),
-        child: Text(
-          message.content,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Glass.textFaint,
-            fontSize: 12,
-            height: 1.4,
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onLongPress: (!streaming && messageIndex != null)
+            ? () => _showMessageActions(messageIndex)
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 8),
+          child: Text(
+            message.content,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Glass.textFaint,
+              fontSize: 12,
+              height: 1.4,
+            ),
           ),
         ),
       );
@@ -423,31 +448,32 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (!mine && !streaming && messageIndex != null) {
-      return GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragEnd: (DragEndDetails details) {
-          final double? velocity = details.primaryVelocity;
-          if (velocity == null) return;
-          if (velocity < -120) {
-            // Swiped left (finger drags right-to-left) -> next swipe or regenerate
-            if (message.canSwipeRight) {
-              _chat.nextSwipe(messageIndex);
-            } else if (isLastAssistant && !_chat.isStreaming) {
-              _chat.regenerate(messageIndex: messageIndex);
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onLongPress: (!streaming && messageIndex != null)
+          ? () => _showMessageActions(messageIndex)
+          : null,
+      onHorizontalDragEnd: (!mine && !streaming && messageIndex != null)
+          ? (DragEndDetails details) {
+              final double? velocity = details.primaryVelocity;
+              if (velocity == null) return;
+              if (velocity < -120) {
+                // Swiped left (finger drags right-to-left) -> next swipe or regenerate
+                if (message.canSwipeRight) {
+                  _chat.nextSwipe(messageIndex);
+                } else if (isLastAssistant && !_chat.isStreaming) {
+                  _chat.regenerate(messageIndex: messageIndex);
+                }
+              } else if (velocity > 120) {
+                // Swiped right (finger drags left-to-right) -> previous swipe
+                if (message.canSwipeLeft) {
+                  _chat.previousSwipe(messageIndex);
+                }
+              }
             }
-          } else if (velocity > 120) {
-            // Swiped right (finger drags left-to-right) -> previous swipe
-            if (message.canSwipeLeft) {
-              _chat.previousSwipe(messageIndex);
-            }
-          }
-        },
-        child: bubbleContent,
-      );
-    }
-
-    return bubbleContent;
+          : null,
+      child: bubbleContent,
+    );
   }
 
   Widget _swipeToolbar(
@@ -520,6 +546,39 @@ class _HomeScreenState extends State<HomeScreen> {
                     SizedBox(width: 3),
                     Text(
                       'RETRY',
+                      style: TextStyle(
+                        color: Glass.textSecondary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _chat.isStreaming
+                ? null
+                : () => _chat.continueGeneration(messageIndex: messageIndex),
+            behavior: HitTestBehavior.opaque,
+            child: Tooltip(
+              message: 'Continue writing',
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const <Widget>[
+                    Icon(
+                      Icons.fast_forward_rounded,
+                      size: 14,
+                      color: Glass.textSecondary,
+                    ),
+                    SizedBox(width: 3),
+                    Text(
+                      'CONTINUE',
                       style: TextStyle(
                         color: Glass.textSecondary,
                         fontSize: 10,
@@ -620,13 +679,14 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: const InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
-                hintText: 'Say something…',
+                hintText: 'Say something… (/note for narration)',
                 hintStyle: TextStyle(color: Glass.textFaint, fontSize: 14.5),
               ),
             ),
           ),
           GestureDetector(
             onTap: streaming ? _chat.stop : _send,
+            onLongPress: streaming ? null : _showComposerOptions,
             child: GlassPanel(
               radius: 999,
               blur: 10,
@@ -643,6 +703,356 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // --- message actions & editing -------------------------------------------
+
+  void _showMessageActions(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _chat.history.length) return;
+    final ChatMessage message = _chat.history[messageIndex];
+    final bool isUser = message.role == ChatRole.user;
+    final bool isAssistant = message.role == ChatRole.assistant;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+          child: GlassPanel(
+            radius: 28,
+            blur: 32,
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            tintStrength: 1.4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Glass.tint(0.3),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  isUser
+                      ? 'USER MESSAGE'
+                      : (isAssistant
+                          ? '${widget.card.name.toUpperCase()} · ${message.hasSwipes ? 'SWIPE ${message.swipeIndex + 1}/${message.swipes.length}' : 'REPLY'}'
+                          : 'NARRATOR NOTE'),
+                  style: const TextStyle(
+                    color: Glass.textFaint,
+                    fontSize: 10.5,
+                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _actionTile(
+                  icon: Icons.edit_outlined,
+                  label: 'Edit message',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _showEditDialog(messageIndex);
+                  },
+                ),
+                _actionTile(
+                  icon: Icons.copy_rounded,
+                  label: 'Copy text',
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await Clipboard.setData(
+                      ClipboardData(text: message.content),
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Copied to clipboard'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                if (isAssistant && !_chat.isStreaming) ...<Widget>[
+                  _actionTile(
+                    icon: Icons.fast_forward_rounded,
+                    label: 'Continue writing',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _chat.continueGeneration(messageIndex: messageIndex);
+                    },
+                  ),
+                  _actionTile(
+                    icon: Icons.sync_rounded,
+                    label: 'Regenerate (new swipe)',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _chat.regenerate(messageIndex: messageIndex);
+                    },
+                  ),
+                ],
+                _actionTile(
+                  icon: Icons.content_cut_rounded,
+                  label: 'Prune from here to end',
+                  color: const Color.fromRGBO(240, 140, 140, 1),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _confirmPrune(messageIndex);
+                  },
+                ),
+                _actionTile(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete message',
+                  color: const Color.fromRGBO(240, 140, 140, 1),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _chat.deleteMessage(messageIndex);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _actionTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final Color itemColor = color ?? Glass.textPrimary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        child: Row(
+          children: <Widget>[
+            Icon(icon, size: 19, color: itemColor),
+            const SizedBox(width: 14),
+            Text(
+              label,
+              style: TextStyle(
+                color: itemColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditDialog(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _chat.history.length) return;
+    final ChatMessage message = _chat.history[messageIndex];
+    final TextEditingController editController =
+        TextEditingController(text: message.content);
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: GlassPanel(
+            radius: 24,
+            blur: 28,
+            padding: const EdgeInsets.all(20),
+            tintStrength: 1.4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    const Text(
+                      'EDIT MESSAGE',
+                      style: TextStyle(
+                        color: Glass.textPrimary,
+                        fontSize: 12,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: Glass.textFaint,
+                      ),
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Glass.shade(0.35),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Glass.tint(0.15), width: 0.8),
+                  ),
+                  child: TextField(
+                    controller: editController,
+                    maxLines: null,
+                    style:
+                        const TextStyle(color: Glass.textPrimary, fontSize: 14),
+                    cursorColor: Glass.tint(0.9),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text(
+                        'CANCEL',
+                        style: TextStyle(
+                          color: Glass.textFaint,
+                          fontSize: 11,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Glass.tint(0.2),
+                        foregroundColor: Glass.textPrimary,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        final String newText = editController.text.trim();
+                        if (newText.isNotEmpty) {
+                          _chat.editMessage(messageIndex, newText);
+                        }
+                        Navigator.of(dialogContext).pop();
+                      },
+                      child: const Text(
+                        'SAVE',
+                        style: TextStyle(
+                          fontSize: 11,
+                          letterSpacing: 1,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmPrune(int messageIndex) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color.fromRGBO(24, 18, 16, 0.95),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text(
+            'Prune conversation?',
+            style: TextStyle(color: Glass.textPrimary, fontSize: 16),
+          ),
+          content: const Text(
+            'This will delete this message and all messages that follow it.',
+            style: TextStyle(color: Glass.textSecondary, fontSize: 13),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('CANCEL',
+                  style: TextStyle(color: Glass.textFaint)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromRGBO(180, 50, 50, 0.8),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _chat.pruneFrom(messageIndex);
+              },
+              child: const Text('PRUNE'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showComposerOptions() {
+    final String text = _input.text.trim();
+    if (text.isEmpty) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+          child: GlassPanel(
+            radius: 24,
+            blur: 28,
+            padding: const EdgeInsets.all(16),
+            tintStrength: 1.4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _actionTile(
+                  icon: Icons.send_rounded,
+                  label: 'Send message (triggers reply)',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _send();
+                  },
+                ),
+                _actionTile(
+                  icon: Icons.bookmark_add_outlined,
+                  label: 'Insert as Narrator Note (no reply)',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _input.clear();
+                    _chat.addNarratorNote(text);
+                    _follow();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

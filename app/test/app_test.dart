@@ -419,6 +419,78 @@ void main() {
       expect(controller.history.first.content, loadBundledCard().greetings[0]);
       controller.dispose();
     });
+
+    test('editing a message updates active swipe and content', () {
+      final controller = controllerWith(ScriptedBackend(const <String>[]));
+      expect(controller.history.first.content, loadBundledCard().greetings[0]);
+
+      controller.editMessage(0, 'Custom opening line.');
+      expect(controller.history.first.content, 'Custom opening line.');
+      expect(controller.history.first.swipes.first, 'Custom opening line.');
+      expect(controller.revision, greaterThan(1));
+      controller.dispose();
+    });
+
+    test('deleting a message removes it from history', () async {
+      final backend = ScriptedBackend(<String>['reply']);
+      final controller = controllerWith(backend);
+      await controller.send('hi');
+      expect(controller.history, hasLength(3)); // greeting, user, assistant
+
+      controller.deleteMessage(1); // delete user turn
+      expect(controller.history, hasLength(2));
+      expect(controller.history.last.role, ChatRole.assistant);
+      controller.dispose();
+    });
+
+    test('pruneFrom removes from index to the end of history', () async {
+      final backend = ScriptedBackend(<String>['reply 1']);
+      final controller = controllerWith(backend);
+      await controller.send('turn 1');
+      expect(controller.history, hasLength(3));
+
+      controller.pruneFrom(1);
+      expect(controller.history, hasLength(1));
+      expect(controller.history.first.role, ChatRole.assistant);
+      controller.dispose();
+    });
+
+    test('addNarratorNote inserts a system note into history', () {
+      final controller = controllerWith(ScriptedBackend(const <String>[]));
+      controller.addNarratorNote('Night falls over the valley.');
+
+      expect(controller.history, hasLength(2));
+      expect(controller.history.last.isSystemNote, isTrue);
+      expect(controller.history.last.content, 'Night falls over the valley.');
+      controller.dispose();
+    });
+
+    test('continueGeneration appends reply to previous assistant turn',
+        () async {
+      final backend = ScriptedBackend(<String>['She stops mid-sentence']);
+      final controller = controllerWith(backend);
+      await controller.send('tell me');
+      expect(controller.history.last.content, 'She stops mid-sentence');
+
+      final continueBackend = ScriptedBackend(<String>[' and continues.']);
+      final continueController = ChatController(
+        card: loadBundledCard(),
+        settings: configured,
+        backendFactory: (_) => continueBackend,
+      );
+      continueController.replaceHistory(controller.history);
+
+      await continueController.continueGeneration();
+
+      expect(continueController.history.last.content,
+          'She stops mid-sentence and continues.');
+      expect(continueBackend.lastRequest!.messages.last.isSystemNote, isTrue);
+      expect(continueBackend.lastRequest!.messages.last.content,
+          contains('Continue your previous response'));
+
+      controller.dispose();
+      continueController.dispose();
+    });
   });
 
   group('glass system', () {
@@ -522,6 +594,28 @@ void main() {
       await tester.pump();
 
       expect(find.text('2/2'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('shows CONTINUE button on last assistant message', (
+      WidgetTester tester,
+    ) async {
+      await pumpHome(tester);
+      expect(find.text('CONTINUE'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('long press on message bubble opens message actions sheet', (
+      WidgetTester tester,
+    ) async {
+      await pumpHome(tester);
+      await tester.longPress(find.text(loadBundledCard().greetings[0]));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Edit message'), findsOneWidget);
+      expect(find.text('Copy text'), findsOneWidget);
+      expect(find.text('Delete message'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

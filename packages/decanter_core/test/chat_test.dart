@@ -121,5 +121,38 @@ void main() {
       expect(parsed.swipeIndex, 0);
       expect(parsed.hasSwipes, isFalse);
     });
+
+    test('withEditedContent updates the active swipe while preserving others',
+        () {
+      final message = const ChatMessage(
+        role: ChatRole.assistant,
+        content: 'Alpha',
+      ).withAddedSwipe('Beta');
+      expect(message.swipeIndex, 1);
+      expect(message.content, 'Beta');
+
+      final edited = message.withEditedContent('Beta modified');
+      expect(edited.content, 'Beta modified');
+      expect(edited.swipes, <String>['Alpha', 'Beta modified']);
+      expect(edited.swipeIndex, 1);
+
+      final editedFirst =
+          edited.withSwipeIndex(0).withEditedContent('Alpha modified');
+      expect(editedFirst.content, 'Alpha modified');
+      expect(editedFirst.swipes, <String>['Alpha modified', 'Beta modified']);
+      expect(editedFirst.swipeIndex, 0);
+    });
+
+    test('withAppendedContent concatenates to the active swipe', () {
+      final message = const ChatMessage(
+        role: ChatRole.assistant,
+        content: 'Hello',
+      ).withAddedSwipe('Part 1');
+
+      final extended = message.withAppendedContent(' and part 2');
+      expect(extended.content, 'Part 1 and part 2');
+      expect(extended.swipes, <String>['Hello', 'Part 1 and part 2']);
+      expect(extended.swipeIndex, 1);
+    });
   });
 }
