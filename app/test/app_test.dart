@@ -1079,14 +1079,16 @@ void main() {
 
         expect(find.byIcon(Icons.forum_outlined), findsOneWidget);
         await tester.tap(find.byIcon(Icons.forum_outlined));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump(const Duration(milliseconds: 200));
 
         expect(find.text('CHATS'), findsOneWidget);
         expect(find.text('NEW CHAT'), findsOneWidget);
         expect(find.text('Main Chat'), findsOneWidget);
 
         await tester.tap(find.text('NEW CHAT'));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump(const Duration(milliseconds: 200));
 
         final List<StoredChat> allChats = library.listChats(entry.id);
         expect(allChats.length, 2);
@@ -1115,11 +1117,13 @@ void main() {
         expect(find.textContaining('Branch point'), findsOneWidget);
 
         await tester.tap(find.byIcon(Icons.more_horiz_rounded).first);
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump(const Duration(milliseconds: 200));
 
         expect(find.text('Branch conversation from here'), findsOneWidget);
         await tester.tap(find.text('Branch conversation from here'));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump(const Duration(milliseconds: 200));
 
         final List<StoredChat> chats = library.listChats(entry.id);
         expect(chats.length, 2);

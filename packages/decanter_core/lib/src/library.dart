@@ -497,7 +497,7 @@ class LibraryStore {
     _migrateLegacyIfNeeded(characterId);
     _characterChatsDirectory(characterId).createSync(recursive: true);
 
-    final String chatId = 'chat_${DateTime.now().millisecondsSinceEpoch}';
+    final String chatId = _uniqueChatId(characterId);
     final int existingCount = listChats(characterId).length;
     final String chatTitle = (title != null && title.trim().isNotEmpty)
         ? title.trim()
@@ -613,6 +613,19 @@ class LibraryStore {
       legacy.renameSync(mainFile.path);
     } else {
       legacy.deleteSync();
+    }
+  }
+
+  static int _chatSequence = 0;
+
+  String _uniqueChatId(String characterId) {
+    while (true) {
+      _chatSequence++;
+      final String candidate =
+          'chat_${DateTime.now().microsecondsSinceEpoch}_$_chatSequence';
+      if (!_threadFile(characterId, candidate).existsSync()) {
+        return candidate;
+      }
     }
   }
 
