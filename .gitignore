@@ -32,4 +32,5 @@ packages/decanter_core/testdata/real/
 .idea/
 .vscode/
 *.iml
-.DS_Store
+# Release build staging
+dist-*/
