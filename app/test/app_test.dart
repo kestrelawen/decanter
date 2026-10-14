@@ -196,6 +196,34 @@ void main() {
       controller.dispose();
     });
 
+    test('passes active preset samplers to ChatRequest', () async {
+      final ScriptedBackend backend = ScriptedBackend(<String>['ok']);
+      const AppSettings customSettings = AppSettings(
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-test',
+        model: 'test-model',
+        temperature: 1.15,
+        topP: 0.88,
+        frequencyPenalty: 0.45,
+        presencePenalty: 0.35,
+        maxTokens: 512,
+      );
+      final ChatController controller = controllerWith(
+        backend,
+        settings: customSettings,
+      );
+
+      await controller.send('Hello');
+
+      final ChatRequest request = backend.lastRequest!;
+      expect(request.temperature, 1.15);
+      expect(request.topP, 0.88);
+      expect(request.frequencyPenalty, 0.45);
+      expect(request.presencePenalty, 0.35);
+      expect(request.maxTokens, 512);
+      controller.dispose();
+    });
+
     test('streamingText accumulates while the reply is arriving', () async {
       final backend = OpenBackend();
       final controller = controllerWith(backend);
@@ -1647,6 +1675,83 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
       },
     );
+
+    testWidgets(
+      'settings screen renders generation presets and allows switching',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(1200, 4800);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: SettingsScreen(
+              initial: configured,
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(find.text('GENERATION & SAMPLERS'), findsOneWidget);
+        expect(find.text('Default'), findsOneWidget);
+        expect(find.text('Creative Storyteller'), findsOneWidget);
+        expect(find.text('Precise / CoT'), findsOneWidget);
+        expect(find.text('Novel / Longform'), findsOneWidget);
+
+        // Tap Creative Storyteller preset
+        await tester.tap(find.text('Creative Storyteller'));
+        await tester.pump();
+
+        // Sampler values should update to Creative Storyteller defaults (temp 1.10, top_p 0.98)
+        expect(find.text('1.10'), findsOneWidget);
+        expect(find.text('0.98'), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets(
+      'settings screen can import a SillyTavern JSON preset',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(1200, 4800);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: SettingsScreen(
+              initial: configured,
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Tap IMPORT JSON button
+        await tester.tap(find.text('IMPORT JSON'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.text('Import SillyTavern Preset'), findsOneWidget);
+
+        const String jsonPreset =
+            '{"name":"Cyberpunk RP","temperature":0.85,"top_p":0.92,"prompts":[{"identifier":"style","content":"Noir."}]}';
+        await tester.enterText(find.byType(TextField).last, jsonPreset);
+        await tester.pump();
+
+        // Tap Import
+        await tester.tap(find.text('Import'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        // Dialog should be dismissed, new preset active
+        expect(find.text('Cyberpunk RP'), findsWidgets);
+        expect(find.text('0.85'), findsOneWidget);
+        expect(find.text('0.92'), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
   });
 }
+
 

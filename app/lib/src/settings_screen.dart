@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:decanter_core/decanter_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'glass.dart';
 import 'settings.dart';
@@ -52,6 +55,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _contextBudget = TextEditingController(
     text: widget.initial.contextBudget.toString(),
   );
+  late final TextEditingController _maxTokens = TextEditingController(
+    text: widget.initial.maxTokens?.toString() ?? '',
+  );
 
   bool _revealKey = false;
   bool _fetchingModels = false;
@@ -66,6 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _updateRepo.dispose();
     _updateToken.dispose();
     _contextBudget.dispose();
+    _maxTokens.dispose();
     super.dispose();
   }
 
@@ -383,16 +390,263 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   AppSettings _collect() {
     final PersonaProfile active = _draft.activePersona;
+    final int? parsedBudget = int.tryParse(_contextBudget.text.trim());
+    final int? parsedMaxTokens = int.tryParse(_maxTokens.text.trim());
+
     return _draft.copyWith(
       baseUrl: _baseUrl.text.trim(),
       apiKey: _apiKey.text.trim(),
       model: _model.text.trim(),
       personaName: active.name,
       personaDescription: active.description,
+      contextBudget: parsedBudget != null
+          ? parsedBudget.clamp(0, 1000000)
+          : _draft.contextBudget,
+      maxTokens: parsedMaxTokens,
+      clearMaxTokens: parsedMaxTokens == null || parsedMaxTokens <= 0,
       updateRepo: _updateRepo.text.trim().isEmpty
           ? 'kestrelawen/decanter'
           : _updateRepo.text.trim(),
       updateToken: _updateToken.text.trim(),
+    );
+  }
+
+  void _selectPreset(GenerationPreset p) {
+    setState(() {
+      _draft = _draft.copyWith(
+        activePresetName: p.name,
+        temperature: p.temperature,
+        topP: p.topP ?? 0.95,
+        frequencyPenalty: p.frequencyPenalty ?? 0.0,
+        presencePenalty: p.presencePenalty ?? 0.0,
+        maxTokens: p.maxTokens,
+        clearMaxTokens: p.maxTokens == null,
+      );
+      if (p.maxTokens != null) {
+        _maxTokens.text = p.maxTokens.toString();
+      } else {
+        _maxTokens.clear();
+      }
+      if (p.maxContext != null && p.maxContext! > 0) {
+        final int budget = p.maxContext!.clamp(0, 1000000);
+        _draft = _draft.copyWith(contextBudget: budget);
+        _contextBudget.text = budget.toString();
+      }
+    });
+  }
+
+  void _onPresetImported(GenerationPreset imported) {
+    final List<GenerationPreset> nextCustom = <GenerationPreset>[
+      for (final GenerationPreset p in _draft.customPresets)
+        if (p.name != imported.name) p,
+      imported,
+    ];
+    setState(() {
+      _draft = _draft.copyWith(
+        customPresets: nextCustom,
+        activePresetName: imported.name,
+        temperature: imported.temperature,
+        topP: imported.topP ?? 0.95,
+        frequencyPenalty: imported.frequencyPenalty ?? 0.0,
+        presencePenalty: imported.presencePenalty ?? 0.0,
+        maxTokens: imported.maxTokens,
+        clearMaxTokens: imported.maxTokens == null,
+      );
+      if (imported.maxTokens != null) {
+        _maxTokens.text = imported.maxTokens.toString();
+      } else {
+        _maxTokens.clear();
+      }
+      if (imported.maxContext != null && imported.maxContext! > 0) {
+        final int budget = imported.maxContext!.clamp(0, 1000000);
+        _draft = _draft.copyWith(contextBudget: budget);
+        _contextBudget.text = budget.toString();
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Imported preset "${imported.name}" with ${imported.prompts.length} prompt modules',
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _exportActivePreset() async {
+    final GenerationPreset current = _draft.activePreset.copyWith(
+      temperature: _draft.temperature,
+      topP: _draft.topP,
+      frequencyPenalty: _draft.frequencyPenalty,
+      presencePenalty: _draft.presencePenalty,
+      maxTokens: _draft.maxTokens,
+      maxContext: _draft.contextBudget,
+    );
+    final String jsonStr = current.exportJson();
+    await Clipboard.setData(ClipboardData(text: jsonStr));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Preset "${current.name}" exported to clipboard as JSON',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showPresetImportDialog() async {
+    final TextEditingController jsonCtrl = TextEditingController();
+    String? importError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext ctx, StateSetter setModalState) {
+          return AlertDialog(
+            backgroundColor: const Color.fromRGBO(24, 18, 15, 0.98),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(color: Glass.tint(0.2)),
+            ),
+            title: const Text(
+              'Import SillyTavern Preset',
+              style: TextStyle(
+                color: Glass.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text(
+                    'Paste SillyTavern Preset JSON below. All samplers, context limits, and custom prompt blocks will be extracted.',
+                    style: TextStyle(color: Glass.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: <Widget>[
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () async {
+                          final ClipboardData? data =
+                              await Clipboard.getData(Clipboard.kTextPlain);
+                          if (data != null && data.text != null) {
+                            setModalState(() {
+                              jsonCtrl.text = data.text!;
+                              importError = null;
+                            });
+                          }
+                        },
+                        child: GlassPill(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          tintStrength: 1.2,
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(Icons.paste_rounded,
+                                  size: 13, color: Glass.textPrimary),
+                              SizedBox(width: 4),
+                              Text(
+                                'Paste Clipboard',
+                                style: TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 160,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Glass.tint(0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Glass.tint(0.18)),
+                    ),
+                    child: TextField(
+                      controller: jsonCtrl,
+                      maxLines: null,
+                      expands: true,
+                      style: const TextStyle(
+                        color: Glass.textPrimary,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                      decoration: const InputDecoration(
+                        hintText:
+                            '{\n  "temperature": 0.9,\n  "top_p": 0.95,\n  ...\n}',
+                        hintStyle:
+                            TextStyle(color: Glass.textFaint, fontSize: 11),
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  if (importError != null) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Text(
+                      importError!,
+                      style: const TextStyle(
+                        color: Color.fromRGBO(240, 110, 100, 0.95),
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel',
+                    style: TextStyle(color: Glass.textFaint)),
+              ),
+              TextButton(
+                onPressed: () {
+                  final String text = jsonCtrl.text.trim();
+                  if (text.isEmpty) {
+                    setModalState(
+                        () => importError = 'Please paste preset JSON.');
+                    return;
+                  }
+                  try {
+                    final dynamic decoded = jsonDecode(text);
+                    if (decoded is! Map<String, dynamic>) {
+                      setModalState(
+                          () => importError = 'Invalid JSON: Expected an object.');
+                      return;
+                    }
+                    final GenerationPreset imported =
+                        GenerationPreset.fromSillyTavernJson(decoded);
+                    Navigator.of(dialogContext).pop();
+                    _onPresetImported(imported);
+                  } catch (e) {
+                    setModalState(() => importError = 'JSON Parse Error: $e');
+                  }
+                },
+                child: const Text('Import',
+                    style: TextStyle(
+                        color: Glass.textPrimary, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -630,8 +884,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 12),
                     _card(
-                      title: 'GENERATION',
+                      title: 'GENERATION & SAMPLERS',
                       children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'PRESETS',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: _showPresetImportDialog,
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                tintStrength: 1.2,
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Icon(Icons.file_download_outlined,
+                                        size: 13, color: Glass.textPrimary),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'IMPORT JSON',
+                                      style: TextStyle(
+                                        color: Glass.textPrimary,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: _exportActivePreset,
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                tintStrength: 0.9,
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Icon(Icons.copy_rounded,
+                                        size: 13, color: Glass.textPrimary),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'EXPORT',
+                                      style: TextStyle(
+                                        color: Glass.textPrimary,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: _draft.allPresets.map((GenerationPreset p) {
+                            final bool selected =
+                                _draft.activePresetName == p.name;
+                            return GestureDetector(
+                              onTap: () => _selectPreset(p),
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                tintStrength: selected ? 1.6 : 0.8,
+                                child: Text(
+                                  p.name,
+                                  style: TextStyle(
+                                    color: selected
+                                        ? Glass.textPrimary
+                                        : Glass.textSecondary,
+                                    fontSize: 11.5,
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        if (_draft.activePreset.description.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 6),
+                          Text(
+                            _draft.activePreset.description,
+                            style: const TextStyle(
+                              color: Glass.textFaint,
+                              fontSize: 11,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        // Temperature
                         Row(
                           children: <Widget>[
                             const Text(
@@ -669,6 +1034,231 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onChanged: (double v) => setState(
                                 () => _draft = _draft.copyWith(temperature: v)),
                           ),
+                        ),
+                        const SizedBox(height: 10),
+                        // Top P
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Top P',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              (_draft.topP ?? 0.95).toStringAsFixed(2),
+                              style: const TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 12.5,
+                                fontFeatures: <FontFeature>[
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: Glass.tint(0.75),
+                            inactiveTrackColor: Glass.tint(0.16),
+                            thumbColor: Glass.tint(0.95),
+                            overlayColor: Glass.tint(0.12),
+                            trackHeight: 3,
+                          ),
+                          child: Slider(
+                            value: (_draft.topP ?? 0.95).clamp(0.0, 1.0),
+                            max: 1.0,
+                            divisions: 20,
+                            onChanged: (double v) =>
+                                setState(() => _draft = _draft.copyWith(topP: v)),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        // Frequency Penalty
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Frequency Penalty',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              (_draft.frequencyPenalty ?? 0.0).toStringAsFixed(2),
+                              style: const TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 12.5,
+                                fontFeatures: <FontFeature>[
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: Glass.tint(0.75),
+                            inactiveTrackColor: Glass.tint(0.16),
+                            thumbColor: Glass.tint(0.95),
+                            overlayColor: Glass.tint(0.12),
+                            trackHeight: 3,
+                          ),
+                          child: Slider(
+                            value: (_draft.frequencyPenalty ?? 0.0)
+                                .clamp(-2.0, 2.0),
+                            min: -2.0,
+                            max: 2.0,
+                            divisions: 40,
+                            onChanged: (double v) => setState(() =>
+                                _draft = _draft.copyWith(frequencyPenalty: v)),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        // Presence Penalty
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Presence Penalty',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              (_draft.presencePenalty ?? 0.0).toStringAsFixed(2),
+                              style: const TextStyle(
+                                color: Glass.textPrimary,
+                                fontSize: 12.5,
+                                fontFeatures: <FontFeature>[
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: Glass.tint(0.75),
+                            inactiveTrackColor: Glass.tint(0.16),
+                            thumbColor: Glass.tint(0.95),
+                            overlayColor: Glass.tint(0.12),
+                            trackHeight: 3,
+                          ),
+                          child: Slider(
+                            value:
+                                (_draft.presencePenalty ?? 0.0).clamp(-2.0, 2.0),
+                            min: -2.0,
+                            max: 2.0,
+                            divisions: 40,
+                            onChanged: (double v) => setState(() =>
+                                _draft = _draft.copyWith(presencePenalty: v)),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        // Max Generation Tokens
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              'Max Output Tokens',
+                              style: TextStyle(
+                                color: Glass.textSecondary,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              width: 100,
+                              height: 32,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: Glass.shade(0.35),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Glass.tint(0.18),
+                                  width: 0.8,
+                                ),
+                              ),
+                              alignment: Alignment.centerRight,
+                              child: TextField(
+                                controller: _maxTokens,
+                                keyboardType: TextInputType.number,
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                  color: Glass.textPrimary,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  fontFeatures: <FontFeature>[
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                  hintText: 'Auto',
+                                  hintStyle: TextStyle(
+                                    color: Glass.textFaint,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                onChanged: (String text) {
+                                  final int? val = int.tryParse(text.trim());
+                                  setState(() {
+                                    _draft = _draft.copyWith(
+                                      maxTokens: val,
+                                      clearMaxTokens: val == null || val <= 0,
+                                    );
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: <int?>[1024, 2048, 4096, 8192, null]
+                              .map((int? t) {
+                            final bool selected = _draft.maxTokens == t;
+                            final String label = t == null ? 'Auto' : '$t';
+                            return GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _draft = _draft.copyWith(
+                                    maxTokens: t,
+                                    clearMaxTokens: t == null,
+                                  );
+                                  _maxTokens.text = t?.toString() ?? '';
+                                });
+                              },
+                              child: GlassPill(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                tintStrength: selected ? 1.6 : 0.8,
+                                child: Text(
+                                  label,
+                                  style: TextStyle(
+                                    color: selected
+                                        ? Glass.textPrimary
+                                        : Glass.textSecondary,
+                                    fontSize: 11,
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
                         ),
                         const SizedBox(height: 14),
                         Row(
@@ -721,7 +1311,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   if (val != null) {
                                     final int clamped = val.clamp(0, 1000000);
                                     setState(() {
-                                      _draft = _draft.copyWith(contextBudget: clamped);
+                                      _draft =
+                                          _draft.copyWith(contextBudget: clamped);
                                     });
                                   }
                                 },

@@ -47,6 +47,7 @@ class MacroExpander {
 
   final MacroContext context;
   final math.Random _random;
+  final Map<String, String> _variables = <String, String>{};
 
   /// Guards against a macro whose expansion contains another macro looping.
   static const int _maxPasses = 4;
@@ -77,6 +78,42 @@ class MacroExpander {
   /// Returns the replacement, or null when the macro is not recognised.
   String? _resolve(String token) {
     if (token.isEmpty) return null;
+
+    // Macro comments: {{// comment}}
+    if (token.startsWith('//')) return '';
+
+    // Whitespace trimming directive: {{trim}}
+    if (token.toLowerCase().trim() == 'trim') return '';
+
+    // Variable setter: {{setvar::name::val}}, {{setvar::name}}, {{setglobalvar::...}}
+    final String lowerToken = token.toLowerCase();
+    if (lowerToken.startsWith('setvar::') ||
+        lowerToken.startsWith('setvar:') ||
+        lowerToken.startsWith('setglobalvar::') ||
+        lowerToken.startsWith('setglobalvar:')) {
+      final String sep = token.contains('::') ? '::' : ':';
+      final int firstSep = token.indexOf(sep);
+      final String rest = token.substring(firstSep + sep.length);
+      final int secondSep = rest.indexOf(sep);
+      final String varName = secondSep == -1
+          ? rest.trim()
+          : rest.substring(0, secondSep).trim();
+      final String varValue =
+          secondSep == -1 ? '' : rest.substring(secondSep + sep.length);
+      _variables[varName] = varValue;
+      return '';
+    }
+
+    // Variable getter: {{getvar::name}}, {{getglobalvar::name}}
+    if (lowerToken.startsWith('getvar::') ||
+        lowerToken.startsWith('getvar:') ||
+        lowerToken.startsWith('getglobalvar::') ||
+        lowerToken.startsWith('getglobalvar:')) {
+      final String sep = token.contains('::') ? '::' : ':';
+      final int firstSep = token.indexOf(sep);
+      final String varName = token.substring(firstSep + sep.length).trim();
+      return _variables[varName] ?? '';
+    }
 
     // A macro may carry an argument: {{roll:1d20}}, {{random:a,b}}.
     final colon = token.indexOf(':');

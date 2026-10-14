@@ -701,6 +701,7 @@ class ChatController extends ChangeNotifier {
       personaDescription: settings.personaDescription,
       history: historyToUse,
       lore: _scan,
+      preset: settings.activePreset,
       authorNote:
           settings.authorNote.trim().isEmpty ? null : settings.authorNote,
       contextBudget: settings.contextBudget,
@@ -711,6 +712,9 @@ class ChatController extends ChangeNotifier {
       model: settings.model,
       messages: prompt.messages,
       temperature: settings.temperature,
+      topP: settings.topP,
+      frequencyPenalty: settings.frequencyPenalty,
+      presencePenalty: settings.presencePenalty,
       maxTokens: settings.maxTokens,
       stream: true,
     );

@@ -11,6 +11,7 @@ export 'src/io_transport.dart';
 export 'src/library.dart';
 export 'src/macros.dart';
 export 'src/png_text.dart';
+export 'src/preset.dart';
 export 'src/prompt.dart';
 export 'src/tokenizer.dart';
 export 'src/updater.dart';

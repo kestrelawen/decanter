@@ -1,6 +1,7 @@
 import 'character_card.dart';
 import 'chat.dart';
 import 'macros.dart';
+import 'preset.dart';
 import 'tokenizer.dart';
 import 'world_info.dart';
 import 'world_info_engine.dart';
@@ -117,6 +118,7 @@ class PromptAssembler {
     List<ChatMessage> history = const <ChatMessage>[],
     WorldInfoScanResult? lore,
     PromptTemplates templates = const PromptTemplates(),
+    GenerationPreset? preset,
     String? authorNote,
     int authorNoteDepth = 4,
     ChatRole authorNoteRole = ChatRole.system,
@@ -184,9 +186,42 @@ class PromptAssembler {
       PromptBlockSource.lore,
     );
     addSystem('charDescription', card.description, PromptBlockSource.card);
-    addSystem('charPersonality', card.personality, PromptBlockSource.card);
-    addSystem('scenario', card.scenario, PromptBlockSource.card);
+
+    final String personalityContent = preset != null &&
+            preset.personalityFormat.isNotEmpty &&
+            preset.personalityFormat != '{{personality}}'
+        ? preset.personalityFormat
+            .replaceAll('{{personality}}', card.personality)
+        : card.personality;
+    addSystem('charPersonality', personalityContent, PromptBlockSource.card);
+
+    final String scenarioContent = preset != null &&
+            preset.scenarioFormat.isNotEmpty &&
+            preset.scenarioFormat != '{{scenario}}'
+        ? preset.scenarioFormat.replaceAll('{{scenario}}', card.scenario)
+        : card.scenario;
+    addSystem('scenario', scenarioContent, PromptBlockSource.card);
     addSystem('personaDescription', personaDescription, PromptBlockSource.card);
+
+    // Preset system modules injected before dialogue examples
+    if (preset != null && preset.prompts.isNotEmpty) {
+      final List<PresetPrompt> activePrompts =
+          preset.prompts.where((PresetPrompt p) => p.enabled).toList()
+            ..sort((PresetPrompt a, PresetPrompt b) =>
+                a.injectionOrder.compareTo(b.injectionOrder));
+
+      for (final PresetPrompt p in activePrompts) {
+        if (p.injectionPosition == 0 && p.injectionDepth <= 0) {
+          addSystem(
+            p.name.isNotEmpty
+                ? p.name
+                : (p.identifier.isNotEmpty ? p.identifier : 'presetPrompt'),
+            p.content,
+            PromptBlockSource.builtin,
+          );
+        }
+      }
+    }
 
     // Example dialogue, wrapped by EM Top/Bottom lore.
     addSystem(
@@ -227,6 +262,36 @@ class PromptAssembler {
           tokenCost: tokenizer.count(content),
         ),
       );
+    }
+
+    if (preset != null && preset.prompts.isNotEmpty) {
+      final List<PresetPrompt> activePrompts =
+          preset.prompts.where((PresetPrompt p) => p.enabled).toList()
+            ..sort((PresetPrompt a, PresetPrompt b) =>
+                a.injectionOrder.compareTo(b.injectionOrder));
+
+      for (final PresetPrompt p in activePrompts) {
+        if (p.injectionPosition != 0 || p.injectionDepth > 0) {
+          final String content = expander.expand(p.content.trim());
+          if (content.isNotEmpty) {
+            final ChatMessage message = ChatMessage(
+              role: ChatRole.fromName(p.role),
+              content: content,
+              isSystemNote: true,
+            );
+            depthInjections.add((depth: p.injectionDepth, message: message));
+            allBlocks.add(
+              PromptBlock(
+                id: p.name.isNotEmpty ? p.name : 'presetDepth:${p.identifier}',
+                role: message.role,
+                content: content,
+                source: PromptBlockSource.builtin,
+                tokenCost: tokenizer.count(content),
+              ),
+            );
+          }
+        }
+      }
     }
 
     // Author's Note, with AN Top/Bottom lore folded into it.

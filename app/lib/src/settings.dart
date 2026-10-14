@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:decanter_core/decanter_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// A known OpenAI-compatible endpoint, offered as a one-tap preset.
@@ -106,6 +107,9 @@ class AppSettings {
     this.apiKey = '',
     this.model = 'gpt-4o-mini',
     this.temperature = 0.9,
+    this.topP = 0.95,
+    this.frequencyPenalty = 0.0,
+    this.presencePenalty = 0.0,
     this.maxTokens,
     this.personaName = 'You',
     this.personaDescription = '',
@@ -113,6 +117,8 @@ class AppSettings {
     this.activePersonaId = '',
     this.authorNote = '',
     this.contextBudget = 32768,
+    this.activePresetName = 'Default',
+    this.customPresets = const <GenerationPreset>[],
     this.updateRepo = 'kestrelawen/decanter',
     this.updateToken = '',
   });
@@ -122,6 +128,9 @@ class AppSettings {
   final String model;
 
   final double temperature;
+  final double? topP;
+  final double? frequencyPenalty;
+  final double? presencePenalty;
   final int? maxTokens;
 
   final String personaName;
@@ -139,6 +148,12 @@ class AppSettings {
   /// Token ceiling for the assembled prompt. 0 disables trimming.
   final int contextBudget;
 
+  /// Name of the currently selected generation preset.
+  final String activePresetName;
+
+  /// User-imported custom SillyTavern presets.
+  final List<GenerationPreset> customPresets;
+
   /// `owner/name` of the GitHub repository the updater reads releases from.
   final String updateRepo;
 
@@ -146,6 +161,23 @@ class AppSettings {
   /// GitHub answers 404 for a private repository to an unauthenticated client,
   /// so the updater cannot tell "no releases yet" from "not allowed to look".
   final String updateToken;
+
+  /// Returns the currently active generation preset.
+  GenerationPreset get activePreset {
+    for (final GenerationPreset p in customPresets) {
+      if (p.name == activePresetName) return p;
+    }
+    for (final GenerationPreset p in GenerationPreset.builtIns()) {
+      if (p.name == activePresetName) return p;
+    }
+    return GenerationPreset.defaultPreset();
+  }
+
+  /// All available presets (built-ins + custom).
+  List<GenerationPreset> get allPresets => <GenerationPreset>[
+        ...GenerationPreset.builtIns(),
+        ...customPresets,
+      ];
 
   /// Returns the currently active persona, falling back to a default profile.
   PersonaProfile get activePersona {
@@ -181,6 +213,12 @@ class AppSettings {
     String? apiKey,
     String? model,
     double? temperature,
+    double? topP,
+    bool clearTopP = false,
+    double? frequencyPenalty,
+    bool clearFrequencyPenalty = false,
+    double? presencePenalty,
+    bool clearPresencePenalty = false,
     int? maxTokens,
     bool clearMaxTokens = false,
     String? personaName,
@@ -189,6 +227,8 @@ class AppSettings {
     String? activePersonaId,
     String? authorNote,
     int? contextBudget,
+    String? activePresetName,
+    List<GenerationPreset>? customPresets,
     String? updateRepo,
     String? updateToken,
   }) {
@@ -216,6 +256,13 @@ class AppSettings {
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
       temperature: temperature ?? this.temperature,
+      topP: clearTopP ? null : (topP ?? this.topP),
+      frequencyPenalty: clearFrequencyPenalty
+          ? null
+          : (frequencyPenalty ?? this.frequencyPenalty),
+      presencePenalty: clearPresencePenalty
+          ? null
+          : (presencePenalty ?? this.presencePenalty),
       maxTokens: clearMaxTokens ? null : (maxTokens ?? this.maxTokens),
       personaName: resolvedName,
       personaDescription: resolvedDescription,
@@ -223,6 +270,8 @@ class AppSettings {
       activePersonaId: effectiveActiveId,
       authorNote: authorNote ?? this.authorNote,
       contextBudget: contextBudget ?? this.contextBudget,
+      activePresetName: activePresetName ?? this.activePresetName,
+      customPresets: customPresets ?? this.customPresets,
       updateRepo: updateRepo ?? this.updateRepo,
       updateToken: updateToken ?? this.updateToken,
     );
@@ -233,6 +282,9 @@ class AppSettings {
         'apiKey': apiKey,
         'model': model,
         'temperature': temperature,
+        if (topP != null) 'topP': topP,
+        if (frequencyPenalty != null) 'frequencyPenalty': frequencyPenalty,
+        if (presencePenalty != null) 'presencePenalty': presencePenalty,
         if (maxTokens != null) 'maxTokens': maxTokens,
         'personaName': personaName,
         'personaDescription': personaDescription,
@@ -242,6 +294,10 @@ class AppSettings {
         'activePersonaId': activePersonaId,
         'authorNote': authorNote,
         'contextBudget': contextBudget,
+        'activePresetName': activePresetName,
+        'customPresets': <Map<String, dynamic>>[
+          for (final GenerationPreset p in customPresets) p.toSillyTavernJson(),
+        ],
         'updateRepo': updateRepo,
         'updateToken': updateToken,
       };
@@ -279,6 +335,19 @@ class AppSettings {
         ? json['activePersonaId'] as String
         : parsedPersonas.first.id;
 
+    final List<GenerationPreset> parsedPresets = <GenerationPreset>[];
+    if (json['customPresets'] is List) {
+      for (final Object? item in json['customPresets'] as List) {
+        if (item is Map) {
+          parsedPresets.add(
+            GenerationPreset.fromSillyTavernJson(
+              Map<String, dynamic>.from(item),
+            ),
+          );
+        }
+      }
+    }
+
     return AppSettings(
       baseUrl: json['baseUrl'] is String
           ? json['baseUrl'] as String
@@ -288,6 +357,13 @@ class AppSettings {
       temperature: json['temperature'] is num
           ? (json['temperature'] as num).toDouble()
           : 0.9,
+      topP: json['topP'] is num ? (json['topP'] as num).toDouble() : 0.95,
+      frequencyPenalty: json['frequencyPenalty'] is num
+          ? (json['frequencyPenalty'] as num).toDouble()
+          : 0.0,
+      presencePenalty: json['presencePenalty'] is num
+          ? (json['presencePenalty'] as num).toDouble()
+          : 0.0,
       maxTokens: json['maxTokens'] is int ? json['maxTokens'] as int : null,
       personaName: name,
       personaDescription: description,
@@ -297,6 +373,10 @@ class AppSettings {
           json['authorNote'] is String ? json['authorNote'] as String : '',
       contextBudget:
           json['contextBudget'] is int ? json['contextBudget'] as int : 32768,
+      activePresetName: json['activePresetName'] is String
+          ? json['activePresetName'] as String
+          : 'Default',
+      customPresets: parsedPresets,
       updateRepo: json['updateRepo'] is String
           ? json['updateRepo'] as String
           : 'kestrelawen/decanter',
