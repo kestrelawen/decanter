@@ -333,9 +333,12 @@ class LibraryStore {
     );
 
     final LibraryEntry? existing = find(id);
+    final String fallbackName = existing?.name ?? 'Unnamed card';
+    final String cardName =
+        card.name.trim().isEmpty ? fallbackName : card.name.trim();
     final LibraryEntry updated = LibraryEntry(
       id: id,
-      name: card.name.trim().isEmpty ? (existing?.name ?? 'Unnamed card') : card.name.trim(),
+      name: cardName,
       creator: card.creator,
       fileName: existing?.fileName ?? '${card.name}.json',
       preview: _preview(card.description),

@@ -1588,7 +1588,6 @@ void main() {
           MaterialApp(
             home: SettingsScreen(
               initial: configured,
-              onSave: (AppSettings s) {},
             ),
           ),
         );

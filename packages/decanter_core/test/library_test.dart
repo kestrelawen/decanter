@@ -682,7 +682,8 @@ void main() {
     });
 
     test('saveCard updates existing card content and metadata', () {
-      final LibraryEntry initial = store.importCard(bytes: cardBytes(name: 'Mira'));
+      final LibraryEntry initial =
+          store.importCard(bytes: cardBytes(name: 'Mira'));
       final TavernCard card = store.loadCard(initial.id);
 
       final TavernCard updated = card.copyWith(
@@ -716,18 +717,26 @@ void main() {
     });
 
     test('exportChatJson produces SillyTavern-compatible chat export', () {
-      final LibraryEntry entry = store.importCard(bytes: cardBytes(name: 'Lyra'));
+      final LibraryEntry entry =
+          store.importCard(bytes: cardBytes(name: 'Lyra'));
       store.saveChat(
         entry.id,
         <ChatMessage>[
-          ChatMessage(role: ChatRole.assistant, content: 'Greetings traveller.'),
+          ChatMessage(
+            role: ChatRole.assistant,
+            content: 'Greetings traveller.',
+          ),
           ChatMessage(role: ChatRole.user, content: 'Hello Lyra!'),
         ],
         chatId: 'thread-1',
         title: 'First Encounter',
       );
 
-      final String jsonStr = store.exportChatJson(entry.id, 'thread-1', userName: 'Player1');
+      final String jsonStr = store.exportChatJson(
+        entry.id,
+        'thread-1',
+        userName: 'Player1',
+      );
       final Map<String, dynamic> decoded =
           jsonDecode(jsonStr) as Map<String, dynamic>;
 
