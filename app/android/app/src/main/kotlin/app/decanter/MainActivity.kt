@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import android.provider.Settings
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -29,26 +28,8 @@ class MainActivity : FlutterActivity() {
     /// The call waiting on a file pick, so the activity result answers the right one.
     private var pendingPick: MethodChannel.Result? = null
 
-    /// Registered here rather than in onCreate because this runs during it, and
-    /// an ActivityResult contract must be registered before the activity starts.
-    private val pickCard =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            val result = pendingPick
-            pendingPick = null
-            if (result == null) return@registerForActivityResult
-
-            if (uri == null) {
-                // The user backed out of the picker. Not a failure.
-                result.success(null)
-                return@registerForActivityResult
-            }
-
-            try {
-                result.success(copyPickedFileToCache(uri))
-            } catch (error: Exception) {
-                result.error("pick_failed", error.message ?: "Could not read that file.", null)
-            }
-        }
+    /// Any value will do; it only has to be ours.
+    private val pickRequestCode = 4821
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -96,7 +77,7 @@ class MainActivity : FlutterActivity() {
                         } else {
                             pendingPick = result
                             try {
-                                pickCard.launch(arrayOf("*/*"))
+                                launchCardPicker()
                             } catch (error: Exception) {
                                 pendingPick = null
                                 result.error(
@@ -111,6 +92,54 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Opens the system document picker.
+     *
+     * `startActivityForResult` rather than the `ActivityResultContracts` API,
+     * because `FlutterActivity` extends a plain `Activity` and therefore has no
+     * `registerForActivityResult` — that lives on `ComponentActivity`. Getting it
+     * would mean basing this on `FlutterFragmentActivity` and adding an
+     * androidx.fragment dependency to the compile classpath for the sake of one
+     * file pick. The older API is deprecated but intact, and this is a single
+     * request with a known code.
+     */
+    private fun launchCardPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, pickRequestCode)
+    }
+
+    /// Our own request is handled here; everything else keeps going to the
+    /// Flutter engine, which forwards it to plugins.
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != pickRequestCode) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+
+        val result = pendingPick
+        pendingPick = null
+        if (result == null) return
+
+        val uri = if (resultCode == RESULT_OK) data?.data else null
+        if (uri == null) {
+            // The user backed out of the picker. Not a failure.
+            result.success(null)
+            return
+        }
+
+        try {
+            result.success(copyPickedFileToCache(uri))
+        } catch (error: Exception) {
+            result.error("pick_failed", error.message ?: "Could not read that file.", null)
+        }
     }
 
     /**
