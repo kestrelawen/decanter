@@ -171,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
         <ChatMessage>[
           ChatMessage(
             role: ChatRole.assistant,
-            content: widget.card.greeting,
+            content: widget.card.firstMes,
           ),
         ];
 

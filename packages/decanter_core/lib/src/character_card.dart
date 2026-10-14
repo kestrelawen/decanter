@@ -91,6 +91,9 @@ class TavernCard {
   /// Keys inside `data` this version does not model, preserved for re-export.
   final Map<String, dynamic> dataExtras;
 
+  /// The primary opening turn.
+  String get greeting => firstMes;
+
   /// Every greeting this card offers: the first message plus alternates.
   List<String> get greetings => <String>[
         if (firstMes.isNotEmpty) firstMes,
